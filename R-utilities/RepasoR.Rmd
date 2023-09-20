@@ -1,0 +1,131 @@
+---
+title: "Repaso de R"
+---
+
+# Repaso de R
+
+## Lenguaje de programacion
+
+Lenguaje de programacion: (bajo nivel -\> alto nivel)
+
+-   Lenguaje binario: alfabeto {0,1}
+
+-   Alto nivel
+
+    -   Lenguaje compilados: codigo fuente -\> codigo binario, ejecutable por el ordenador (el trabajo es hecho dal compilador)
+
+    -   Lenguaje interpretados: codigo fuente -\> interprete -\> traudcion a codigo binario, ejecucion y obtencion de resultados (no obtenemos un programa directamente ejecutable para el ordenador). R es un lenguaje interpretado. Lenguaje interpretados son menos eficiente pero son mas facile de escribir
+
+## Programa
+
+Un programa es una combinacion de estructuras de datos y algoritmos
+
+-   estructuras de datos: como almenacamos informarcionlos datos
+
+    -   vectores: secuencias de datos del mismo tipo
+
+    -   matrices y arrays: vectores con atributo dim (todo los elementos son del mismo tipo)
+
+    -   listas: secuencias de datos que no tienen por que ser del mismo tipo
+
+    -   marcos de datos (dataframe): listas de elementos della misma longitud y de clase dataframe (representan tablas, cada elemento de la tabla es una colona)
+
+-   algoritmos: como procesamos los datos
+
+    -   prinicipio DRY (don't repeat yourself -\> avoid code replication)
+
+    -   definicion de funcion: nombre_de_function \<- function(arg1, arg2, ...){ cuerpo de la function}
+
+    -   condicionales
+
+    -   bucles (cicli): for(){}; while(){}; repeat
+
+    -   algunas funciones utiles
+
+        -   replicate, lapply, tapply
+
+## Advanced R
+
+## purr package
+
+-   functional programming : <https://adv-r.hadley.nz/fp.html>
+
+-   functionals, using map() from the purr package. We use these functions to control the data structure of the output
+
+```{r}
+library(purrr)
+
+triple <- function(x) x*3 
+purrr::map(1:3,triple)
+
+#also: ~ can be used to write an anonymous function (purrr package) 
+# map(1:3, ~.x*3)
+
+#also: \(arg1,arg2,...) expr
+purrr::map(1:3, \(x) x*3)
+
+#I can control the output of the function using different functions
+map_dbl(1:3, ~.x*3)
+
+xs <- map(1:8, ~runif(10))
+
+ws <- map(1:8, ~rpois(10,5)+1)
+```
+
+map2
+
+```{r}
+#here we're performing the weighted mean of elements of xs weighted by elements in ws
+map2_dbl(xs,ws,weighted.mean)
+
+#same as
+map2_dbl(ws,xs,~weighted.mean(.y,.x))
+```
+
+## Pipeline
+
+Operador de tuberia (pipeline operator) (command+shift+M)
+
+```{r}
+%>% 
+```
+
+## Costruir un vector poco a poco
+
+```{r}
+system.time({
+  #if we don't allocate the space in advance we lose a lot of time
+  vector_de_pares <- double() 
+  for(n in 1:1e5){
+    vector_de_pares <- c(vector_de_pares,n*2)
+  }
+})
+
+
+system.time({
+  #if we don't allocate the space in advance we lose a lot of time
+  vector_de_pares <- double(1e5) 
+  for(n in 1:1e5){
+    vector_de_pares[[n]] <- n*2
+  }
+})
+```
+
+## Style
+
+-   <https://style.tidyverse.org>
+
+-   "styler" package
+
+    ```{r}
+    help("styler")
+
+    styler:::style_active_file()
+    ```
+<<<<<<< HEAD
+
+## Renv package
+
+<https://rstudio.github.io/renv/>
+=======
+>>>>>>> dfdfff9 (First impact)
