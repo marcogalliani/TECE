@@ -86,10 +86,6 @@ map2_dbl(ws,xs,~weighted.mean(.y,.x))
 
 Operador de tuberia (pipeline operator) (command+shift+M)
 
-```{r}
-%>% 
-```
-
 ## Costruir un vector poco a poco
 
 ```{r}
@@ -122,10 +118,7 @@ system.time({
 
     styler:::style_active_file()
     ```
-<<<<<<< HEAD
 
 ## Renv package
 
 <https://rstudio.github.io/renv/>
-=======
->>>>>>> dfdfff9 (First impact)
