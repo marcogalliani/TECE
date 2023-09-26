@@ -1,0 +1,59 @@
+---
+title: "Estimacion de pi"
+output: html_notebook
+---
+
+```{r generacion}
+genera_vector_aleatorio <- function() {
+  runif(2)
+}
+
+g <- function(u) {
+  x <- u[1]
+  y <- u[2]
+  x^2 + y^2 <= 1
+}
+```
+
+```{r replicacion}
+n <- 1e3
+valores <- replicate(n, {
+  u <- genera_vector_aleatorio()
+  g(u)
+})
+```
+
+
+```{r estimacion}
+n_A <- sum(valores)
+
+probabilidad_cobertura <- 0.95
+alfa <- 1 - probabilidad_cobertura
+percentil <- qnorm(1 -alfa/2)
+
+#Intervalo de confianza segun el metodo MC
+estimacion_MC <- n_A/n
+error_estandar_MC <- sqrt(var(valores)/n)
+intervalo_MC <- estimacion_MC +c (-1,1) * error_estandar_MC * percentil
+
+#Intervalo de confianza segun el metodo de Wald
+estimacion_Wald <- n_A/n
+error_estandar_Wald <- sqrt(estimacion_Wald * (1 - estimacion_Wald)/n)
+intervalo_Wald <- estimacion_Wald +c (-1,1) * error_estandar_Wald * percentil
+
+#Intervalo de confianza segun el metodo de Agresti-Coull
+n_0 <- percentil^2/2
+n_1 <- percentil^2/2
+n_Agresti_Coull <- n + n_0 + n_1
+
+estimacion_Agresti_Coull <- (n_A + n_1)/ n_Agresti_Coull
+error_estandar_Agresti_Coull <- sqrt(estimacion_Agresti_Coull*(1-estimacion_Agresti_Coull)/ n_Agresti_Coull)
+intervalo_Agresti_Coull <- estimacion_Agresti_Coull + c(-1,1)*error_estandar_Agresti_Coull*percentil
+
+#Intervalo de confianza segundo el metodo conservativo
+p_I <- qbeta(alfa/2, shape1 = n_A, shape2 = n - n_A +1)
+p_D <- qbeta(1-alfa/2, shape1 = n_A+1, shape2 = n -n_A)
+
+intervalo_conservativo <- c(p_I, p_D)
+```
+
