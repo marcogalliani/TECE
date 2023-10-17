@@ -1,0 +1,127 @@
+---
+title: "Integracion de Montecarlo"
+output: html_notebook
+---
+
+Estimar $$ 
+I_1 = \int_0^1 (1-x^2)^{3/2}dx = 3\pi/96 \approx 0.58905 \\
+I_2 = \int_1^4
+\int_2^7\frac{x^2y}{3}dxdy = 1675/6 \approx 279.167
+$$
+
+## Ejemplo 1
+
+Estimamos con $$
+I_1 = \int_R g(x)f(x)dx \quad \text{con} \quad f \sim U_{[0,1]} \\
+\text{donde} \quad g(x) = (1-x^2)^{3/2}
+$$
+
+### Generacion
+
+En primer lugar establicemos la forma de generar valores aleatorios, en este caso, de manera uniforme en el intervalo [0,1], y definimos la funcion $g$ que debe aplicarse a esos valores
+
+```{r generacion_1}
+set.seed(457367)
+
+genera_valor_aleatorio <- function(){
+    runif(1, 0, 1) #generemos un valor en el interval [0,1]
+}
+
+g <- function(x){
+    (1 - x^2)^(3/2)
+}
+```
+
+### Replicacion
+
+A continuacion, replicamos el proceso de generar un valor aleatorio y aplicarle al funcion $g$
+
+```{r replicacion_1}
+valores <- replicate(1e5, {
+    x <- genera_valor_aleatorio()
+    g(x)
+})
+```
+
+### Estimacion
+
+Finalmente. calculamos una estimacion de $I_1$ y costruimos un intervalo de confianza
+
+```{r estimacion_1}
+estimacion <- mean(valores)
+
+n <- 1e5
+alfa <- 0.05
+probabilidad_de_copertura <- 1 - alfa
+
+percentil <- qnorm(1-alfa/2)
+error_estandar <- sqrt(var(valores)/n) # sd(valores)/sqrt(n)
+
+intervalo_confianza <- estimacion + c(-1,1)*error_estandar*percentil
+```
+
+Un intervalo de confianza con probabilidad de copertura $`r probabilidad_de_copertura``$ es $`r intervalo_confianza`$
+
+## Ejemplo 2
+Considere la funcion de densidad de 
+\[
+U_{[0,1]\times[0,1]} \quad f(x,y) = I_{\{(x,y)\in(0,1)\times(0,1)\}}
+\]
+Para generar en $(0,1)\times(0,1)$ podemos generar de dos variables distintas y independientes, porque la funcion de densidad de la distribucion uniforme en $(0,1)\times(0,1)$ se puede factorizar en el prodocto de dos funciones de densidad uniformes.
+
+Ahora necesitamos que hacer un cambio de variables:
+$$
+x = 5u_1 + 2 \\
+y = 3u_2 + 1 \\
+\\
+J = \begin{bmatrix}
+5 & 0 \\
+0 & 3 
+\end{bmatrix}
+
+\\
+dx = 5du_1 \\
+dy = 3du_2 \\
+
+I_2 = \int_0^1 \int_0^1 \frac{(5u_1+2)^2(3u_2+1)}{3}15du_1du_2
+
+$$
+### Generacion
+```{r generacion_2}
+genera_vector_aleatorio <- function(){
+    runif(2, 0, 1) #generemos un valor en el interval [0,1]x[0,1]
+}
+
+g <- function(u){
+    u_1 <- u[[1]]
+    u_2 <- u[[2]]
+    5*((5*u_1+2)^2)*(3*u_2+1)
+}
+```
+### Replicacion
+```{r}
+valores <- replicate(1e5, {
+    u <- genera_vector_aleatorio()
+    g(u)
+})
+```
+
+### Estimacion
+
+```{r estimacion_2}
+estimacion <- mean(valores)
+
+n <- 1e5
+alfa <- 0.05
+probabilidad_de_copertura <- 1 - alfa
+
+percentil <- qnorm(1-alfa/2)
+error_estandar <- sqrt(var(valores)/n) # sd(valores)/sqrt(n)
+
+intervalo_confianza <- estimacion + c(-1,1)*error_estandar*percentil
+```
+
+Un intervalo de confianza con probabilidad de copertura $`r probabilidad_de_copertura``$ es $`r intervalo_confianza`$
+
+
+

@@ -1,0 +1,34 @@
+---
+title: "Cadenaqs de Markov"
+output: html_document
+---
+
+```{r}
+set.seed(35872358)
+```
+
+```{r}
+estados_tiempo <- c("Soleado", "Nublado", "LLuvioso")
+```
+
+
+```{r}
+transcion_tiempo <- matrix(c(0.7, 0.2, 0.1,
+                             0.3, 0.4, 0.3,
+                             0.2, 0.45, 0.35),
+                           byrow = T,
+                           nrow = 3, ncol = 3,
+                           dimnames = list(estados_tiempo, estados_tiempo))
+```
+
+Construcion de la cadena de Markov
+```{r}
+library(markovchain)
+
+modelo_tiempo <- new("markovchain",
+                     states = estados_tiempo,
+                     transitionMatrix = transcion_tiempo,
+                     name = "Modelo de tiempo metereologico")
+modelo_tiempo
+```
+

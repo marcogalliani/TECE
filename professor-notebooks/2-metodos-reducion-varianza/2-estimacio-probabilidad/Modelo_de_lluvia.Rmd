@@ -1,0 +1,209 @@
+---
+title: "Modelo de lluvia"
+output:
+  html_document:
+    theme:
+      version: 4
+params:
+  lambda: 2.9
+  kappa: 0.8
+  sigma: 3
+---
+
+```{r reproducibilidad, include=FALSE}
+set.seed(235783)
+```
+
+
+Consideremos el siguiente modelo de la cantidad de lluvia recogida durante un mes en una cierta área:
+
+* El número de eventos lluviosos en el mes sigue una distribución de Poisson de parámetro \( \lambda = `r params$lambda` \).
+* La cantidad de lluvia recogida a partir de cada evento lluvioso sigue una distribución de Weibull con parámetro de forma \( \kappa = `r params$kappa` \) y parámetro de escala \( \sigma = `r params$sigma` \).
+* La cantidad total de lluvia recogida es, por tanto,
+  \begin{equation*}
+    L = \sum_{i = 1}^{N} L_{i}
+  \end{equation*}
+  donde \( N \sim \mathrm{Poisson}(\lambda) \) y \( L_{i} \sim \mathrm{Weibull}(\kappa, \sigma) \). Si \( N = 0 \), entonces \( L = 0 \).
+* Cuando \( L < 5 \) se emite una alerta de escasez de agua.
+
+A continuación vamos a estimar el valor de \( \mathbb{P}(L < 5) \) mediante el método de Montecarlo, tanto de forma directa como usando el método del muestreo estratificado. Para poder comparar más fácilmente los resultados obtenidos, los recopilaremos en una tabla al final de este documento.
+
+Para cada método estimaremos también su coste en tiempo haciendo uso de las herramientas proporcionadas por el paquete `bench` (en particular, la función `mark` analiza el coste en tiempo y en memoria de las expresiones proporcionadas, ejecutando cada una de ellas un cierto número de iteraciones y devolviendo una tabla con distintas medidas, entre ellas la mediana de los tiempos de ejecución de cada iteración). De esta forma, podremos comparar la eficiencia de cada método a la hora de estimar el valor de la integral. Para ello, es fundamental usar la misma unidad de tiempo a la hora de estimar el coste.
+
+
+```{r configuración-bench}
+unidad_de_tiempo <- "ms"
+```
+
+
+## Método directo de Montecarlo
+
+```{r Montecarlo-directo, warning=FALSE}
+genera_eventos_lluviosos <- function() {
+  rpois(1, lambda = params$lambda)
+}
+
+genera_cantidades_de_lluvia <- function(N) {
+  rweibull(N, shape = params$kappa, scale = params$sigma)
+}
+
+emite_alerta <- function(cantidades_lluvia) {
+  sum(cantidades_lluvia) < 5
+}
+
+n <- 1e4
+coste_directo <- bench::mark(
+  {
+    valores <- replicate(n, {
+      N <- genera_eventos_lluviosos()
+      cantidades_lluvia <- genera_cantidades_de_lluvia(N)
+      emite_alerta(cantidades_lluvia)
+    })
+  },
+  iterations = 10,
+  time_unit = unidad_de_tiempo
+)$median
+
+estimacion_directo <- mean(valores)
+varianza_directo <- var(valores) / n
+eficiencia_directo <- 1 / (varianza_directo * coste_directo)
+```
+
+
+## Método del muestreo estratificado con asignación proporcional
+
+Si simulamos repetidamente el modelo y representamos gráficamente los valores de cantidad de lluvia en función de la cantidad de eventos lluviosos producidos, se observa que la probabilidad de emitir una alerta de escasez de agua depende fuertemente de estos últimos.
+
+```{r representacion-cantidades-lluvia}
+library(ggplot2)
+
+simulaciones <- replicate(1e3, {
+  N <- genera_eventos_lluviosos()
+  cantidades_lluvia <- genera_cantidades_de_lluvia(N)
+  c(N = N, L = sum(cantidades_lluvia))
+})
+
+ggplot(
+  as.data.frame(t(simulaciones)),
+  aes(N, L)
+) +
+  geom_hline(yintercept = 5, color = "red") +
+  geom_jitter(width = 0.3, height = 0) +
+  scale_x_continuous(breaks = scales::breaks_width(1)) +
+  scale_y_continuous(breaks = scales::breaks_width(5))
+```
+
+Es natural, entonces, estratificar según los distintos valores de \( N \). Una dificultad que surge es que el método del muestreo estratificado utiliza una cantidad finita de estratos, mientras que el conjunto de posibles valores de \( N \) es el de los enteros no negativos \( \mathbb{Z}_{\geq 0} \). Consideraremos entonces como estratos la siguiente partición: \( \mathbb{Z}_{\geq 0} = \{0\} \cup \dotsb \cup \{N'\} \cup (N', +\infty) \). Para generar valores en el último estrato, nos basaremos en el siguiente resultado:
+
+*Método de la transformada inversa*: sea \(F\) una función de distribución.
+
+1. La función \( F^{-1} : (0, 1) \rightarrow \mathbb{R} \) dada por
+\begin{equation*}
+  F^{-1} (u) = \inf \{x \mid F(x) \geq u\}
+\end{equation*}
+está bien definida y se llama la inversa generalizada de \(F\).
+2. Sea \( U \sim \mathrm{U}(0, 1) \). Entonces la función de distribución de la variable aleatoria \( F^{-1} (U) \) es igual a la función \( F \).
+
+Por lo tanto, para generar un valor aleatorio de una variable \( X \sim F \) basta generar un valor aleatorio \( u \) uniforme en \( (0, 1) \) y calcular \( F^{-1}(u) \).
+
+La demostración del método de la transformada inversa se puede adaptar a distintas variantes. Por ejemplo, se puede comprobar que si \( X \) es una variable aleatoria con función de distribución \( F \), \( q \) es un posible valor de \( X \), \( p = F(q) \) y \( U \sim \mathrm{U}(p, 1) \), entonces la variable aleatoria \( F^{-1} (U) \) tiene la misma distribución que \( X \) truncada al intervalo \( (q, +\infty) \).
+
+De esta forma, para generar un valor mayor que \( N' \) según una distribución \( \mathrm{Poisson}(\lambda) \), basta generar un valor uniforme \( u \sim \mathrm{U}(F_{\mathrm{Poisson}(\lambda)}(N'), 1) \) y calcular \( F_{\mathrm{Poisson}(\lambda)}^{-1}(u) \).
+
+Por otra parte, puesto que sabemos que \( N = 0 \) implica automáticamente que \( L = 0\), a ese estrato únicamente le asignaremos dos valores, repartiendo los demás valores entre el resto de estratos según su probabilidad condicionada a que \( N > 0 \).
+
+```{r replicación-estratificado}
+N_prima <- 5
+p_N_prima <- ppois(N_prima, lambda = params$lambda)
+probabilidades_estratos <- c(
+  dpois(seq(0, N_prima), lambda = params$lambda),
+  1 - p_N_prima
+)
+
+# Calculamos la cantidad de valores para los estratos N > 0
+probabilidad_N_mayor_que_0 <- 1 - ppois(0, lambda = params$lambda)
+probabilidades_condicionadas_estratos <-
+  probabilidades_estratos[-1] / probabilidad_N_mayor_que_0
+n_estratos <- ((n - 2) * probabilidades_condicionadas_estratos) |>
+  ceiling() |>
+  pmax(2)
+# Añadimos la cantidad de valores para el estrato N = 0
+n_estratos <- c(2, n_estratos)
+
+genera_eventos_lluviosos <- function(numero_estrato) {
+  if (numero_estrato <= N_prima) {
+    numero_estrato
+  } else {
+    u <- runif(1, min = p_N_prima, max = 1)
+    qpois(u, lambda = params$lambda)
+  }
+}
+
+genera_cantidades_de_lluvia <- function(N) {
+  rweibull(N, shape = params$kappa, scale = params$sigma)
+}
+
+coste_estratificado <- bench::mark(
+  {
+    valores <- purrr::map2(
+      seq(0, N_prima + 1),
+      n_estratos,
+      \(numero_estrato, n_estrato) {
+        replicate(n_estrato, {
+          N <- genera_eventos_lluviosos(numero_estrato)
+          cantidades_lluvia <- genera_cantidades_de_lluvia(N)
+          emite_alerta(cantidades_lluvia)
+        })
+      }
+    )
+  },
+  iterations = 10,
+  time_unit = unidad_de_tiempo
+)$median
+```
+
+Finalmente, estimamos el valor de la integral, la varianza de esa estimación y la eficiencia del método.
+
+```{r estimacion-estratificado}
+estimacion_estratificado <- valores |>
+  purrr::map_dbl(mean) |>
+  weighted.mean(w = probabilidades_estratos)
+varianza_estratificado <- valores |>
+  purrr::map_dbl(var) |>
+  magrittr::divide_by(n_estratos) |>
+  magrittr::multiply_by(probabilidades_estratos^2) |>
+  sum()
+eficiencia_estratificado <-
+  1 / (varianza_estratificado * coste_estratificado)
+```
+
+
+## Tabla comparativa de resultados
+
+```{r tabla-de-resultados}
+knitr::kable(
+  data.frame(
+    `Método` = c(
+      "Directo",
+      "Estratificado"
+    ),
+    `Estimación` = c(
+      estimacion_directo,
+      estimacion_estratificado
+    ),
+    Varianza = c(
+      varianza_directo,
+      varianza_estratificado
+    ),
+    Coste = c(
+      coste_directo,
+      coste_estratificado
+    ),
+    Eficiencia = c(
+      eficiencia_directo,
+      eficiencia_estratificado
+    )
+  ),
+  digits = 10
+)
+```

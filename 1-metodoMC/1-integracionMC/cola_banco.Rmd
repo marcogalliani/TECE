@@ -1,0 +1,78 @@
+---
+title: "Cola en el banco"
+output: html_document
+params:
+  T_apertura: 300
+  tasa_llegada: 1
+  media_servicio: !r 45/60
+---
+
+```{r replicabilidad}
+set.seed(708446)
+```
+
+```{r generacion}
+genera_tiempos_llegada_y_servicio <- function(){
+  tiempos_llegadas <- numeric()
+  cliente <- 0
+  #-> Generacion tiempos de llegada
+  tiempo_total <- 0
+  repeat{
+    tiempo_llegada <- rexp(1, rate = params$tasa_llegada)
+    tiempo_total <- tiempo_total + tiempo_llegada
+    if(tiempo_total >= params$T_apertura){
+      break
+    }
+    cliente <- cliente + 1
+    tiempos_llegadas[[cliente]] <- tiempo_llegada
+  }
+  #generacion tiempos de servicio
+  cantidad_clientes <- length(tiempos_llegadas)
+  tiempos_servicio <- rexp(cantidad_clientes,
+                           rate = 1/params$media_servicio)
+  
+  #resultados de la funcion
+  rbind(tiempos_llegadas,
+        tiempos_servicio)
+}
+
+cuenta_cuantos_esperan_mucho <- function(tiempos){
+ numero_clientes <- ncol(tiempos)
+ #calculo de los tiempos de espera: recursion de Hindley
+ if(numero_clientes < 2){
+   0
+ }else{
+   numero_clientes_esperan_mucho <- 0
+   tiempo_espera <- 0
+   for(i in 2:numero_clientes){
+     
+     tiempo_espera <- max(0,
+                          tiempo_espera + tiempos[2, i-1] - tiempos[1, i])
+     if(tiempo_espera > 5){
+       numero_clientes_esperan_mucho <- numero_clientes_esperan_mucho + 1
+     }
+   }
+   numero_clientes_esperan_mucho
+ }
+}
+```
+
+```{r replicacion}
+n <- 5e3
+valores_clientes_esperan_mucho <- replicate(n,{
+  tiempos_llegadas_y_servicios <- genera_tiempos_llegada_y_servicio()
+  cuenta_cuantos_esperan_mucho(tiempos_llegadas_y_servicios)
+})
+```
+
+```{r estimacion}
+estimacion <- mean(valores_clientes_esperan_mucho)
+
+probabilidad_cobertura <- 0.95
+alfa <- 1 - probabilidad_cobertura
+percentil <- qnorm(1 - alfa / 2)
+error_estandar <- sqrt(var(valores_clientes_esperan_mucho) / n)
+intervalo_confianza <- estimacion + c(-1, 1) * error_estandar * percentil
+```
+
+En una sucursal bancaria con un solo oficinista, que permanece abierta durante $`r params$T_apertura`$ minutos, con una tasa de llegada de clientes de $`r params$tasa_llegada`$ por minuto y con un tiempo medio de servicio de $`r params$media_servicio`$ minutos, el valor estimado de clientes que esperarán más de cinco minutos a ser atendidos es de $`r round(estimacion)`$, siendo $(`r round(intervalo_confianza)`)$ un intervalo de confianza con probabilidad de cobertura $`r probabilidad_cobertura`$.

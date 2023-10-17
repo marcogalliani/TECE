@@ -1,0 +1,100 @@
+---
+title: "Project Evaluation and Review Technique (PERT)"
+output: html_document
+---
+
+```{r relicabilidad}
+set.seed(443701)
+```
+
+Tenemos que generar la duracion de cada una tarea que sabemos ser distribuida como exponenciales
+$$
+T_j \sim  \mathcal{E}(1/\lambda_j)
+$$
+# Calculo de la duracion del proyecto
+
+## Generacion
+Utilizando esta funcion generamos un vector (numero de elementos es el numero de tareas)
+```{r generacion-1}
+duraciones_medias_tarea_proyecto <- c(4, 4, 2, 5, 2, 3, 2, 3, 2, 2)
+
+genera_duracion_tareas <- function(){
+  purrr::map_dbl(
+    duraciones_medias_tarea_proyecto,
+    \(duracion_media_tarea) rexp(1, rate = 1/duracion_media_tarea) #genera valor aleatorio de una exponencial
+  )
+}
+# Calculo de la duracion del proyecto
+calcula_duracion_proyecto <- function(t){
+  e_1 <- t[[1]]
+  e_2 <- e_1 + t[[2]]
+  e_3 <- e_1 + t[[3]]
+  e_4 <- e_2 + t[[4]]
+  e_5 <- e_2 + t[[5]]
+  e_6 <- e_3 + t[[6]]
+  e_7 <- e_3 + t[[7]]
+  e_8 <- e_3 + t[[8]]
+  e_9 <- max(e_5,e_6,e_7) + t[[9]]
+  e_10 <- max(e_4, e_9, e_8) + t[[10]]
+  
+  e_10
+}
+```
+## Replicacion
+```{r replicacion-1}
+n <- 1e5
+
+duraciones_proyecto <- replicate(n, {
+  duraciones_tareas <- genera_duracion_tareas()
+  calcula_duracion_proyecto(duraciones_tareas)
+})
+```
+## Estimacion
+```{r estimacion-1}
+estimacion_duracion_proyecto <- mean(duraciones_proyecto)
+
+probabilidad_cobertura <- 0.95
+alfa <- 1 - probabilidad_cobertura
+percentil <- qnorm(1-alfa/2)
+error_estandar <- sqrt(var(duraciones_proyecto)/n)
+
+intervalo_confianza <- 
+  estimacion_duracion_proyecto + c(-1,1)*error_estandar*percentil
+```
+Hemos obtenido una estimacion de \(`r estimacion_duracion_proyecto`\), siendo \((`r intervalo_confianza`)\) un intervalo de confianza con probabilidad de cobertura \(`r probabilidad_cobertura`\)
+
+# Estimacion de probabilidad
+##
+```{r generacion-2}
+indica_proyecto_largo <- function(t){
+  calcula_duracion_proyecto(t) > 40 
+}
+```
+
+```{r replicacion-2}
+n <- 1e5
+
+indicadores_proyectos_largos <- replicate(n, {
+  duraciones_tareas <- genera_duracion_tareas()
+  indica_proyecto_largo(duraciones_tareas)
+})
+```
+
+```{r eastimacion-2}
+probabilidad_cobertura <- 0.95
+alfa <- 1 - probabilidad_cobertura
+percentil <- qnorm(1-alfa/2)
+n_0 <- percentil^2/2
+n_1 <- percentil^2/2
+n_Agresti_Coull <- n + n_0 + n_1
+n_A <- sum(indicadores_proyectos_largos)
+
+estimacion <- (n_A + n_1)/ n_Agresti_Coull
+error_estandar <- sqrt(estimacion*(1-estimacion)/n_Agresti_Coull)
+
+intervalo_confianza <- 
+  estimacion +c(-1,1)*error_estandar*percentil
+```
+
+Estimacion: `r estimacion`
+Intervalo de confianza: `r intervalo_confianza`
