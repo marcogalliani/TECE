@@ -4,9 +4,6 @@ output:
   html_document:
     theme:
       version: 4
-editor_options: 
-  markdown: 
-    wrap: 72
 ---
 
 ```{r replicabilidad, include=FALSE}
@@ -15,35 +12,32 @@ set.seed(356764)
 
 ### Estimación de probabilidades
 
-Sean $\mathbf{X}$ un vector aleatorio que sigue una distribución de
-probabilidad con función de densidad $f$ y $A \subseteq \mathbb{R}^{d}$
-un conjunto de Borel y consideremos el problema de estimar
-$p = \mathbb{P}(\mathbf{X} \in A)$. Si definimos la *función indicador*
-$𝟙_{A}$ como \begin{equation*}
+Sean \( \mathbf{X} \) un vector aleatorio que sigue una distribución de probabilidad con función de densidad \( f \) y \( A \subseteq \mathbb{R}^{d} \) un conjunto de Borel y consideremos el problema de estimar \( p = \mathbb{P}(\mathbf{X} \in A) \). Si definimos la _función indicador_ \( 𝟙_{A} \) como
+\begin{equation*}
   𝟙_{A}(\mathbf{x}) =
   \begin{cases}
     1 & \text{si } \mathbf{x} \in A, \\
     0 & \text{si } \mathbf{x} \not\in A.
   \end{cases}
-\end{equation*} entonces se tiene \begin{equation*}
+\end{equation*}
+entonces se tiene
+\begin{equation*}
   \mathbb{P}(\mathbf{X} \in A) =
   \int_{A} f(\mathbf{x}) \mathop{}\!\mathrm{d} \mathbf{x} =
   \int_{\mathbb{R}^{d}} 𝟙_{A}(\mathbf{x}) f(\mathbf{x}) \mathop{}\!\mathrm{d} \mathbf{x} =
   \mathbb{E}[𝟙_{A}(\mathbf{X})]
-\end{equation*} y podemos aplicar el método de Montecarlo para obtener
-la estimación.
+\end{equation*}
+y podemos aplicar el método de Montecarlo para obtener la estimación.
 
-Por tanto, basta generar $n$ valores independientes
-$\mathbf{x}_{1}, \dotsc, \mathbf{x}_{n} \sim f$ y calcular
+Por tanto, basta generar \( n \) valores independientes \( \mathbf{x}_{1}, \dotsc, \mathbf{x}_{n} \sim f \) y calcular
 \begin{equation*}
   \hat{p}_{n} =
   \frac{1}{n} \sum_{i = 1}^{n} 𝟙_{A}(\mathbf{x}_{i}) =
   \frac{n_{A}}{n}
-\end{equation*} donde $n_{A}$ es la cantidad de valores generados que
-pertenecen al conjunto $A$.
+\end{equation*}
+donde \( n_{A} \) es la cantidad de valores generados que pertenecen al conjunto \( A \).
 
-Para construir un intervalo de confianza a partir del teorema central
-del límite necesitamos calcular el error estándar de $\hat{p}_{n}$:
+Para construir un intervalo de confianza a partir del teorema central del límite necesitamos calcular el error estándar de \( \hat{p}_{n} \):
 \begin{equation*}
   \mathrm{Var}(\hat{p}_{n}) =
   \frac{1}{n^{2}} \sum_{i = 1}^{n} \mathrm{Var}\bigl(𝟙_{A}(\mathbf{X})\bigr) =
@@ -51,10 +45,11 @@ del límite necesitamos calcular el error estándar de $\hat{p}_{n}$:
   \frac{\mathbb{E}\bigl[𝟙_{A}(\mathbf{X})^{2}\bigr] - \mathbb{E}\bigl[𝟙_{A}(\mathbf{X})\bigr]^{2}}{n} =
   \frac{p - p^{2}}{n} =
   \frac{p (1 - p)}{n}
-\end{equation*} ya que $𝟙_{A}(\mathbf{X})^{2} = 𝟙_{A}(\mathbf{X})$.
+\end{equation*}
+ya que \( 𝟙_{A}(\mathbf{X})^{2} = 𝟙_{A}(\mathbf{X}) \).
 
-Por tanto, un intervalo de confianza con probabilidad de cobertura
-$1 - \alpha$ sería \begin{equation*}
+Por tanto, un intervalo de confianza con probabilidad de cobertura \( 1 - \alpha \) sería
+\begin{equation*}
   \Bigl[
     \hat{p}_{n} -
     \sqrt{\frac{\hat{p}_{n} (1 - \hat{p}_{n})}{n}} z_{1 - \frac{\alpha}{2}},
@@ -63,22 +58,15 @@ $1 - \alpha$ sería \begin{equation*}
   \Bigr]
 \end{equation*}
 
-Esta manera de obtener un intervalo de confianza se conoce como el
-método de Wald y proporciona usualmente intervalos con una probabilidad
-de cobertura menor a la requerida.
+Esta manera de obtener un intervalo de confianza se conoce como el método de Wald y proporciona usualmente intervalos con una probabilidad de cobertura menor a la requerida.
 
-Una manera de obtener mejores intervalos de confianza, en el sentido de
-que la probabilidad de cobertura es más cercana a la requerida, es el
-método de Agresti-Coull. Este consiste en añadir unas pseudocuentas
-$n_{0}$ y $n_{1}$ de valores fuera y dentro, respectivamente, del
-conjunto $A$. Estas pseudocuentas únicamente dependen del nivel de
-confianza requerido, en concreto
-$n_{0} = n_{1} = z_{1 - \frac{\alpha}{2}}^{2}/2$. De esta forma,
+Una manera de obtener mejores intervalos de confianza, en el sentido de que la probabilidad de cobertura es más cercana a la requerida, es el método de Agresti-Coull. Este consiste en añadir unas pseudocuentas \( n_{0} \) y \( n_{1} \) de valores fuera y dentro, respectivamente, del conjunto \( A \). Estas pseudocuentas únicamente dependen del nivel de confianza requerido, en concreto \( n_{0} = n_{1} = z_{1 - \frac{\alpha}{2}}^{2}/2 \). De esta forma,
 \begin{align*}
   \tilde{n} &= n + n_{0} + n_{1} \\
   \tilde{p}_{n} &= \frac{n_{A} + n_{1}}{\tilde{n}}
-\end{align*} y un intervalo de confianza con probabilidad de cobertura
-$1 - \alpha$ sería \begin{equation*}
+\end{align*}
+y un intervalo de confianza con probabilidad de cobertura \( 1 - \alpha \) sería
+\begin{equation*}
   \Bigl[
     \tilde{p}_{n} -
     \sqrt{\frac{\tilde{p}_{n} (1 - \tilde{p}_{n})}{\tilde{n}}}
@@ -89,12 +77,8 @@ $1 - \alpha$ sería \begin{equation*}
   \Bigr]
 \end{equation*}
 
-Fijado el valor $n_{A}$ y usando que entonces la función de distribución
-de la binomial considerada como función de la probabilidad de éxito $p$
-es continua y decreciente, una forma de obtener un intervalo de
-confianza conservativo que asegure al menos el nivel de confianza
-$1 - \alpha$ requerido es considerar el intervalo $(p_{I}, p_{D})$ tal
-que \begin{equation*}
+Fijado el valor \( n_{A} \) y usando que entonces la función de distribución de la binomial considerada como función de la probabilidad de éxito \( p \) es continua y decreciente, una forma de obtener un intervalo de confianza conservativo que asegure al menos el nivel de confianza \(1 - \alpha \) requerido es considerar el intervalo \( (p_{I}, p_{D}) \) tal que
+\begin{equation*}
   \mathbb{P}_{\mathrm{binom}(n, p_{I})} \Bigl(\sum_{i = 1}^{n} 𝟙_{A}(\mathbf{x}_{i}) \geq n_{A}\Bigr) =
   \frac{\alpha}{2}
   \quad\text{y}\quad
@@ -102,21 +86,21 @@ que \begin{equation*}
   \frac{\alpha}{2}
 \end{equation*}
 
-Teniendo en cuenta la relación entre la distribución binomial y la
-distribución beta, se tiene que \begin{equation*}
+Teniendo en cuenta la relación entre la distribución binomial y la distribución beta, se tiene que
+\begin{equation*}
   p_{I} = F_{\mathrm{beta}(n_{A}, n - n_{A} + 1)}^{-1} \Bigl(\frac{\alpha}{2}\Bigr)
   \quad\text{y}\quad
   p_{D} = F_{\mathrm{beta}(n_{A} + 1, n - n_{A})}^{-1} \Bigl(1 - \frac{\alpha}{2}\Bigr)
 \end{equation*}
 
-### Aplicación a la estimación de $\pi$
 
-Vamos a aplicar lo anterior para realizar una estimación del valor del
-número $\pi$. Para ello, consideremos el vector aleatorio
-$\mathbf{U} = (X, Y) \sim \mathrm{U}\bigl((0, 1)^{2}\bigr)$ y el
-conjunto \begin{equation*}
+### Aplicación a la estimación de \( \pi \)
+
+Vamos a aplicar lo anterior para realizar una estimación del valor del número \( \pi \). Para ello, consideremos el vector aleatorio \( \mathbf{U} = (X, Y) \sim \mathrm{U}\bigl((0, 1)^{2}\bigr) \) y el conjunto
+\begin{equation*}
   A = \{(x, y) \in (0, 1)^{2} \mid x^{2} + y^{2} \leq 1\}
-\end{equation*} que se puede visualizar en el siguiente gráfico:
+\end{equation*}
+que se puede visualizar en el siguiente gráfico:
 
 ```{r sector-circular, echo=FALSE}
 library(ggplot2)
@@ -137,16 +121,16 @@ ggplot() +
   coord_fixed()
 ```
 
-Entonces, \begin{equation*}
+
+Entonces,
+\begin{equation*}
   \mathbb{P}\bigl((X, Y) \in A\bigr) =
   \int_{A} 1 \mathop{}\!\mathrm{d} x \mathop{}\!\mathrm{d} y =
   \frac{\pi}{4}
-\end{equation*} y podemos estimar su valor mediante el método de
-Montecarlo.
+\end{equation*}
+y podemos estimar su valor mediante el método de Montecarlo.
 
-Empezamos estableciendo la forma de generar valores del vector aleatorio
-y definiendo la función $g$ que se aplicará a esos valores, que en este
-caso se trata de la función indicador del conjunto $A$.
+Empezamos estableciendo la forma de generar valores del vector aleatorio y definiendo la función \(g\) que se aplicará a esos valores, que en este caso se trata de la función indicador del conjunto \( A \).
 
 ```{r generacion}
 genera_vector_aleatorio <- function() {
@@ -160,14 +144,9 @@ g <- function(u) {
 }
 ```
 
-Nótese que, tal y como la hemos definido, la función indicador devuelve
-`TRUE` o `FALSE`. No obstante, al realizar posteriormente operaciones
-aritméticas R transformará esos valores a `1` y `0`, respectivamente,
-por lo que no habrá ningún problema.
+Nótese que, tal y como la hemos definido, la función indicador devuelve `TRUE` o `FALSE`. No obstante, al realizar posteriormente operaciones aritméticas R transformará esos valores a `1` y `0`, respectivamente, por lo que no habrá ningún problema.
 
-Ahora basta replicar la generación de valores aleatorios uniformes en el
-cuadrado $(0, 1) \times (0, 1)$ y determinar si pertenecen o no al
-conjunto $A$.
+Ahora basta replicar la generación de valores aleatorios uniformes en el cuadrado \((0, 1) \times (0, 1)\) y determinar si pertenecen o no al conjunto \( A \).
 
 ```{r replicacion}
 n <- 1e3
@@ -177,10 +156,7 @@ valores <- replicate(n, {
 })
 ```
 
-Finalmente, estimamos el valor de $\pi / 4$ a partir de los valores
-generados y construimos intervalos de confianza según el método general
-de Montecarlo y según los tres métodos explicados, todos con la misma
-probabilidad de cobertura para que tenga sentido compararlos.
+Finalmente, estimamos el valor de \( \pi / 4 \) a partir de los valores generados y construimos intervalos de confianza según el método general de Montecarlo y según los tres métodos explicados, todos con la misma probabilidad de cobertura para que tenga sentido compararlos.
 
 ```{r estimacion}
 # La mejor manera de contar en R cuántos objetos verifican una propiedad
@@ -221,10 +197,7 @@ estimacion_conservativo <- n_A / n
 intervalo_conservativo <- c(p_I, p_D)
 ```
 
-Teniendo en cuenta que el valor que se ha estimado es $\pi / 4$, para
-obtener una estimación de $\pi$ hay que multiplicar por $4$ tanto las
-estimaciones como los intervalos de confianza obtenidos. Se tiene
-entonces lo siguiente:
+Teniendo en cuenta que el valor que se ha estimado es \( \pi / 4\), para obtener una estimación de \( \pi \) hay que multiplicar por \( 4 \) tanto las estimaciones como los intervalos de confianza obtenidos. Se tiene entonces lo siguiente:
 
 ```{r}
 estimaciones <- 4 * c(

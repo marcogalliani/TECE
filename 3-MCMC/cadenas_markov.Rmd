@@ -24,11 +24,19 @@ transcion_tiempo <- matrix(c(0.7, 0.2, 0.1,
 Construcion de la cadena de Markov
 ```{r}
 library(markovchain)
+library(RcppParallel)
 
 modelo_tiempo <- new("markovchain",
                      states = estados_tiempo,
                      transitionMatrix = transcion_tiempo,
                      name = "Modelo de tiempo metereologico")
 modelo_tiempo
+```
+
+```{r}
+
+status <- renv::status()
+status
+
 ```
 

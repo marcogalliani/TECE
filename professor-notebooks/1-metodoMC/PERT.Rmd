@@ -104,26 +104,24 @@ Si todas las tareas duraran exactamente el tiempo especificado, entonces se podr
 Para realizar esa estimación mediante el método de Montecarlo, definimos en primer lugar una función que genera la duración aleatoria de cada una de las tareas y una función que calcula el valor de \( e_{10} \), dado el vector de esas duraciones aleatorias.
 
 ```{r generacion-1}
-genera_duraciones_tareas <- function(duraciones_medias) {
-  duraciones_tareas <- numeric(10)
-  for (j in seq_len(10)) {
-    lambda <- 1 / duraciones_medias[j]
-    duraciones_tareas[j] <- rexp(1, rate = lambda)
-  }
-  duraciones_tareas
+genera_duraciones_tareas <- function() {
+  purrr::map_dbl(
+    duraciones_medias_tareas_proyecto,
+    \(duracion_media_tarea) rexp(1, rate = 1 / duracion_media_tarea)
+  )
 }
 
 calcula_duracion_proyecto <- function(t) {
-  e_1 <- t[1]
-  e_2 <- e_1 + t[2]
-  e_3 <- e_1 + t[3]
-  e_4 <- e_2 + t[4]
-  e_5 <- e_2 + t[5]
-  e_6 <- e_3 + t[6]
-  e_7 <- e_3 + t[7]
-  e_8 <- e_3 + t[8]
-  e_9 <- max(e_5, e_6, e_7) + t[9]
-  max(e_4, e_8, e_9) + t[10]
+  e_1 <- t[[1]]
+  e_2 <- e_1 + t[[2]]
+  e_3 <- e_1 + t[[3]]
+  e_4 <- e_2 + t[[4]]
+  e_5 <- e_2 + t[[5]]
+  e_6 <- e_3 + t[[6]]
+  e_7 <- e_3 + t[[7]]
+  e_8 <- e_3 + t[[8]]
+  e_9 <- max(e_5, e_6, e_7) + t[[9]]
+  max(e_4, e_8, e_9) + t[[10]]
 }
 ```
 
@@ -134,7 +132,7 @@ n <- 1e5
 
 duraciones_proyecto <- replicate(n, {
   duraciones_tareas <-
-    genera_duraciones_tareas(duraciones_medias_tareas_proyecto)
+    genera_duraciones_tareas()
   calcula_duracion_proyecto(duraciones_tareas)
 })
 ```
@@ -185,7 +183,7 @@ n <- 1e5
 
 indicadores_proyectos_largos <- replicate(n, {
   duraciones_tareas <-
-    genera_duraciones_tareas(duraciones_medias_tareas_proyecto)
+    genera_duraciones_tareas()
   indica_proyecto_largo(duraciones_tareas)
 })
 ```

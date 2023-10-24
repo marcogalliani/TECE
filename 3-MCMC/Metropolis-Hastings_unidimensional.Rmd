@@ -1,0 +1,60 @@
+---
+title: "Algoritmo de Metropolis-Hastings: ejemplo unidimensional"
+output: html_document
+---
+
+```{r replicabilidad, include=FALSE}
+set.seed(23059823)
+```
+
+```{r}
+library(ggplot2)
+
+f_u <- function(x){
+  x^2 * exp(-x^2 +sin(x))
+}
+
+q <- function(y){
+  dnorm(y, mean = 1, sd = 1)
+}
+
+#plotting
+ggplot() +
+  geom_function(fun = f_u) +
+  geom_function(fun = q, colour = "red") +
+  xlim(-4,4)
+```
+Aqui no estamo usando el valor actual de la cadena: muestrador independente $q(y) = q(y | x_t)$
+
+Cuando usamos un muestrador independente la razon de Hastings se reduce a 
+$$
+r(y|x_t) = \frac{f_u(y)q(x_t)}{f_u(x_t)q(y)}
+$$
+
+
+```{r}
+n <- 10 
+estado_actual <- 1
+
+for(t in seq_len(n-1)){
+  print(sprintf("Estado actual: %.3f", estado_actual))
+  estado_propuesto <- rnorm(1, mean = 1, sd = 1)
+  
+  razon_Hastings <- (f_u(estado_propuesto)*q(estado_actual))/
+    (f_u(estado_actual)*q(estado_propuesto))
+  
+  u <- runif(1)
+  print(sprintf("Estado propuesto: %.3f, Prob. de aceptar: %.3f, %s, (u = %.3f)", 
+                estado_propuesto,
+                min(1, razon_Hastings),
+                if(u < razon_Hastings){
+                  "Aceptar"
+                }else{
+                  "Rechazar"
+                },
+                u
+                )
+        )
+}
+```
+
