@@ -1,0 +1,159 @@
+---
+title: "Punto de cambio"
+output:
+  html_document:
+    theme:
+      version: 4
+---
+
+```{r replicabilidad, include=FALSE}
+set.seed(325235)
+```
+
+El conjunto de datos `coal` del paquete `boot` proporciona las fechas (entre el 15 de marzo de 1851 y el 22 de marzo de 1962) de 191 explosiones en minas de carbón que provocaron diez o más víctimas. Las siguientes expresiones de _R_ extraen los años de las explosiones y calculan una tabla de frecuencias absolutas.
+
+```{r datos}
+data(coal, package = "boot")
+y <- coal$date |>
+  floor() |>
+  factor(levels = 1851:1962) |>
+  table()
+y
+```
+
+Un análisis de los datos muestra que con el cambio de siglo pudo haber ocurrido una variación en el promedio del número de desastres anuales. Es natural modelizar entonces los datos mediante un _modelo de punto de cambio_. En este modelo se asumen dos regímenes para \( n \) variables aleatorias:
+\begin{align*}
+  Y_{i}
+  &\sim \mathrm{Poi}(\lambda_{1}), \quad \text{para \( i = 1, \dotsc, M \)} \\
+  Y_{i}
+  &\sim \mathrm{Poi}(\lambda_{2}), \quad \text{para \( i = M + 1, \dotsc, n \)}
+\end{align*}
+donde \( \lambda_{1}, \lambda_{2} ∈ \mathbb{R}_{>0} \) y \( M ∈ \{1, \dotsc, n - 1\} \) (es decir, \( 1850 + M \) sería el último año con un promedio de \( \lambda_1 \) explosiones y \( 1850 + M + 1 \) sería el primer año con un promedio de \( \lambda_2 \) explosiones).
+
+Una distribución a priori adecuada para cada parámetro \( \lambda_{j} \) es \( \mathrm{Gamma}(\alpha_{j}, \beta_{j}) \), mientras que para el parámetro \( M \) es \( \mathrm{U}(\{1, \dotsc, n - 1\}) \). La densidad a posteriori de los tres parámetros es entonces
+\begin{equation*}
+  f_{pos}(\lambda_{1}, \lambda_{2}, M \mid y_{1}, \dotsc, y_{n}) \propto
+  \Biggl(\prod_{i = 1}^{M} \lambda_{1}^{y_{i}} \mathrm{e}^{-\lambda_{1}}\Biggr)
+  \Biggl(\prod_{i = M + 1}^{n} \lambda_{2}^{y_{i}} \mathrm{e}^{-\lambda_{2}}\Biggr)
+  \lambda_{1}^{\alpha_{1} - 1} \mathrm{e}^{-\beta_{1} \lambda_{1}}
+  \lambda_{2}^{\alpha_{2} - 1} \mathrm{e}^{-\beta_{2} \lambda_{2}}
+\end{equation*}
+
+Por tanto, las densidades condicionales completas para cada parámetro \( \lambda_{1}, \lambda_{2} \) y \( M \) son
+\begin{align*}
+  f(\lambda_{1} \mid y_{1}, \dotsc, y_{n}, \lambda_{2}, M)
+  &\propto \lambda_{1}^{\alpha_{1} - 1 + \sum_{i = 1}^{M} y_{i}}
+  \mathrm{e}^{-(\beta_{1} + M) \lambda_{1}} \\
+  f(\lambda_{2} \mid y_{1}, \dotsc, y_{n}, \lambda_{1}, M)
+  &\propto \lambda_{2}^{\alpha_{2} - 1 + \sum_{i = M + 1}^{n} y_{i}}
+  \mathrm{e}^{-(\beta_{2} + n - M) \lambda_{2}} \\
+  \mathbb{P}(M \mid y_{1}, \dotsc, y_{n}, \lambda_{1}, \lambda_{2})
+  &\propto
+  \lambda_{1}^{\sum_{i = 1}^{M} y_{i}}
+  \lambda_{2}^{\sum_{i = M + 1}^{n} y_{i}}
+  \mathrm{e}^{(\lambda_{2} - \lambda_{1}) M}
+\end{align*}
+
+En consecuencia, es fácil generar muestras de esas variables condicionadas, ya
+que
+\begin{align*}
+  \lambda_{1} \mid y_{1}, \dotsc, y_{n}, \lambda_{2}, M
+  &\sim \mathrm{Gamma}\Bigl(\alpha_{1} + \sum_{i = 1}^{M} y_{i}, \beta_{1} + M\Bigr) \\
+  \lambda_{2} \mid y_{1}, \dotsc, y_{n}, \lambda_{1}, M
+  &\sim \mathrm{Gamma}\Bigl(\alpha_{2} + \sum_{i = M + 1}^{n} y_{i}, \beta_{2} + n - M\Bigr) \\
+  M \mid y_{1}, \dotsc, y_{n}, \lambda_{1}, \lambda_{2}
+  &\sim \mathrm{Cat}\Bigl(
+    c \lambda_{1}^{y_{1}} \lambda_{2}^{\sum_{i = 2}^{n} y_{i}}
+    \mathrm{e}^{(\lambda_{2} - \lambda_{1}) 1},
+    \dotsc,
+    c \lambda_{1}^{\sum_{i = 1}^{n - 1} y_{i}} \lambda_{2}^{y_{n}}
+    \mathrm{e}^{(\lambda_{2} - \lambda_{1}) (n - 1)}
+    \Bigr)
+\end{align*}
+donde \( c \) es la constante normalizadora que hace que la suma de las
+probabilidades para cada posible valor de \( M \) sea \( 1 \).
+
+Estamos entonces en condiciones de estimar los valores esperados de los parámetros \( \lambda_{1}, \lambda_{2} \) y \( M \) mediante un muestreador de Gibbs. Para ello tomaremos \( \alpha_{1} = \alpha_{2} = 0.5 \) y \( \beta_{1} = \beta_{2} = 1 \) como valores de los hiperparámetros.
+
+```{r hiperparámetros}
+alfa1 <- 0.5
+alfa2 <- 0.5
+beta1 <- 1
+beta2 <- 1
+```
+
+Analizando las distribuciones condicionales completas se observa que la implementación del muestreador de Gibbs se verá facilitada si se precalculan las frecuencias absolutas acumuladas de las explosiones.
+
+```{r frecuencias-acumuladas}
+n <- length(y)
+y_total <- sum(y)
+y_acumulada_hasta <- cumsum(y[-n])
+y_acumulada_desde <- y_total - y_acumulada_hasta
+```
+
+Aplicamos el método de las medias por lotes para calcular intervalos de confianza de las estimaciones (comprobamos con un gráfico de autocorrelación que las medias de cada lote están prácticamente incorreladas). Como estado inicial consideramos que, tal y como sugieren los datos, el cambio de régimen se produce con el cambio de siglo.
+
+```{r muestreador-Gibbs}
+numero_lotes <- 1e3
+longitud_lote <- 1e2
+medias_lotes <-
+  matrix(
+    nrow = numero_lotes, ncol = 3,
+    dimnames = list(NULL, c("lambda1", "lambda2", "M"))
+  )
+lambda1 <- y[as.character(1851:1900)] |> mean()
+lambda2 <- y[as.character(1901:1962)] |> mean()
+M <- 50
+for (i in seq_len(numero_lotes)) {
+  suma_lambda1 <- 0
+  suma_lambda2 <- 0
+  suma_M <- 0
+  for (t in seq_len(longitud_lote)) {
+    suma_lambda1 <- suma_lambda1 + lambda1
+    suma_lambda2 <- suma_lambda2 + lambda2
+    suma_M <- suma_M + M
+    lambda1 <- rgamma(1,
+      shape = alfa1 + y_acumulada_hasta[[M]],
+      rate = beta1 + M
+    )
+    lambda2 <- rgamma(1,
+      shape = alfa2 + y_acumulada_desde[[M]],
+      rate = beta2 + n - M
+    )
+    probs_M <- lambda1^y_acumulada_hasta *
+      lambda2^y_acumulada_desde *
+      exp((lambda2 - lambda1) * seq_len(n - 1))
+    M <- sample(seq_len(n - 1), size = 1, prob = probs_M)
+  }
+  medias_lotes[i, ] <-
+    c(suma_lambda1, suma_lambda2, suma_M) / longitud_lote
+}
+
+library(coda)
+
+medias_lotes |>
+  mcmc() |>
+  autocorr.plot(auto.layout = FALSE)
+
+library(purrr)
+
+estimaciones <- medias_lotes |>
+  array_branch(margin = 2) |>
+  map_dbl(mean)
+estimaciones
+
+errores_estandar <- medias_lotes |>
+  array_branch(margin = 2) |>
+  map_dbl(var) |>
+  magrittr::divide_by(numero_lotes) |>
+  sqrt()
+
+probabilidad_cobertura <- 0.95
+alfa <- 1 - probabilidad_cobertura
+percentil <- qnorm(1 - alfa / 2)
+map2(
+  estimaciones,
+  errores_estandar,
+  \(estimacion, error) estimacion + c(-1, 1) * error * percentil
+)
+```

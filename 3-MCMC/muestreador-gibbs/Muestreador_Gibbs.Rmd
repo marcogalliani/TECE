@@ -1,0 +1,149 @@
+---
+title: 'Muestreador de Gibbs'
+output:
+  html_document:
+    theme:
+      version: 4
+---
+
+```{r replicabilidad, include=FALSE}
+set.seed(23059823)
+```
+
+Se pretende estimar \( \mathbb{E}_{f}[\mathbf{X}] \), donde
+\begin{equation*}
+  f(x_{1}, x_{2}) \propto
+  \begin{cases}
+    \mathrm{e}^{-x_{1} x_{2} - x_{1} - x_{2}}
+    &\text{si \( x_{1} \geq 0 \) y \( x_{2} \geq 0 \)}, \\
+    0
+    &\text{en otro caso.}
+  \end{cases}
+\end{equation*}
+
+```{r densidad, message=FALSE}
+library(plotly)
+
+f_u <- function(x1, x2) {
+  exp(-x1 * x2 - x1 - x2) * (x1 >= 0) * (x2 >= 0)
+}
+
+malla <- data.frame(
+  x1 = (0:300) / 100,
+  x2 = (0:300) / 100
+)
+malla |>
+  plot_ly(x = ~x2, y = ~x1) |>
+  add_surface(z = outer(malla$x1, malla$x2, f_u))
+```
+
+Vamos a realizar la estimación requerida a partir de un muestreador de Gibbs. Para ello, en primer lugar determinamos las distribuciones condicionales completas.
+\begin{align*}
+  f(x_1 \mid x_2) &\propto
+  \begin{cases}
+    \mathrm{e}^{-(x_{2} + 1) x_{1}}
+    &\text{si \(x_{1} \geq 0\)}, \\
+    0
+    &\text{en otro caso.}
+  \end{cases}
+  \qquad\text{para } x_{2} \geq 0 \\
+  f(x_2 \mid x_1) &\propto
+  \begin{cases}
+    \mathrm{e}^{-(x_{1} + 1) x_{2}}
+    &\text{si \(x_{2} \geq 0\)}, \\
+    0
+    &\text{en otro caso.}
+  \end{cases}
+  \qquad\text{para } x_{1} \geq 0 \\
+\end{align*}
+
+Por tanto, \( f(x_{1} \mid x_{2}) \sim \mathrm{Exp}(x_{2} + 1) \) (asumiendo \( x_{2} \geq 0 \)) y \( f(x_{2} \mid x_{1}) \sim \mathrm{Exp}(x_{1} + 1) \) (asumiendo \( x_{1} \geq 0 \)).
+
+A continuación, iniciamos el muestreador de Gibbs a partir del estado \( x_{1} = x_{2} = 0 \), que es donde la densidad objetivo toma su máximo. Para generar el estado siguiente a partir del actual, generamos de manera aleatoria sus componentes por separado, usando las distribuciones condicionales completas: \( x_{1 t+1} \sim \mathrm{Exp}(x_{2 t} + 1) \) y \( x_{2 t+1} \sim \mathrm{Exp}(x_{1 t+1} + 1) \).
+
+```{r muestreador-Gibbs}
+n <- 1e4
+estados <- matrix(nrow = n, ncol = 2)
+estados[1, ] <- c(0, 0)
+for (t in seq_len(n - 1)) {
+  x1_actual <- estados[t, 1]
+  x2_actual <- estados[t, 2]
+  x1_nuevo <- rexp(1, rate = x2_actual + 1)
+  x2_nuevo <- rexp(1, rate = x1_nuevo + 1)
+  estados[t + 1, ] <- c(x1_nuevo, x2_nuevo)
+}
+```
+
+Como diagnóstico de convergencia, los siguientes gráficos parecen indicar que la cadena de Markov ha convergido a la densidad deseada.
+
+```{r diagnóstico-convergencia}
+library(coda)
+
+estados |>
+  mcmc() |>
+  traceplot()
+
+library(ggplot2)
+
+ggplot(
+  as.data.frame(estados),
+  aes(x = V1, y = V2)
+) +
+  geom_contour(
+    data = expand.grid(x1 = (0:300) / 100, x2 = (0:300) / 100),
+    mapping = aes(x = x1, y = x2, z = f_u(x1, x2))
+  ) +
+  geom_point(shape = ".")
+```
+
+Estamos ya en condiciones de obtener la estimación requerida, así como intervalos de confianza para la misma. El gráfico de autocorrelación parece indicar que, al aplicar el método de las medias por lotes, la longitud de estos no es necesario que sea excesivamente grande.
+
+```{r estimación}
+estados |>
+  mcmc() |>
+  autocorr.plot(lag.max = 10)
+
+estado_actual <- estados[n, ]
+
+n <- 1e5
+longitud_lotes <- 100
+numero_lotes <- n / longitud_lotes
+medias_lotes <- matrix(nrow = numero_lotes, ncol = 2)
+for (i in seq_len(numero_lotes)) {
+  suma_estados <- c(0, 0)
+  for (t in seq_len(longitud_lotes)) {
+    suma_estados <- suma_estados + estado_actual
+    x1_actual <- estado_actual[[1]]
+    x2_actual <- estado_actual[[2]]
+    x1_nuevo <- rexp(1, rate = x2_actual + 1)
+    x2_nuevo <- rexp(1, rate = x1_nuevo + 1)
+    estado_actual <- c(x1_nuevo, x2_nuevo)
+  }
+  medias_lotes[i, ] <- suma_estados / longitud_lotes
+}
+
+medias_lotes |>
+  mcmc() |>
+  autocorr.plot()
+
+library(purrr)
+
+estimaciones <- array_branch(medias_lotes, margin = 2) |>
+  map_dbl(mean)
+names(estimaciones) <- paste0("x", 1:2)
+estimaciones
+
+errores_estandar <- array_branch(medias_lotes, margin = 2) |>
+  map_dbl(var) |>
+  magrittr::divide_by(numero_lotes) |>
+  sqrt()
+
+probabilidad_cobertura <- 0.95
+alfa <- 1 - probabilidad_cobertura
+percentil <- qnorm(1 - alfa / 2)
+map2(
+  estimaciones,
+  errores_estandar,
+  \(estimacion, error) estimacion + c(-1, 1) * error * percentil
+)
+```

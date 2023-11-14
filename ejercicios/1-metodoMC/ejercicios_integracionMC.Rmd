@@ -1,0 +1,3249 @@
+---
+title: "Integracion MC: Ejercicios"
+output: html_document
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+## Utilities
+
+-   [list of probability
+    distributions](https://en.wikipedia.org/wiki/List_of_probability_distributions)
+-   [r package with non std probability
+    distributions](https://cran.r-project.org/web/packages/extraDistr/index.html)
+
+## Ejercicio 1 (+ int. conf.)
+
+```{r}
+rm(list = ls())
+set.seed(050700)
+
+unidad_de_tiempo <- "ms"
+
+n <- 1e5
+
+g <- function(x){
+    x^2*(1-x^2)^(1/2)
+}
+```
+
+### MC directo
+1) Generacion
+```{r}
+genera_valor_aleatorio <- function(){
+    runif(1, 0, 1) #generemos un valor en el interval [0,1]
+}
+```
+
+2) Replicacion
+```{r}
+coste_directo <- bench::mark(
+  {
+    valores <- replicate(n, {
+      x <- genera_valor_aleatorio()
+      g(x)
+    })
+  },
+  iterations = 10,
+  time_unit = unidad_de_tiempo
+)$median
+```
+
+3) Estimacion
+```{r}
+estimacion_directo <- mean(valores)
+varianza_directo <- var(valores) / n
+eficiencia_directo <- 1 / (varianza_directo * coste_directo)
+```
+
+Intervalos:
+```{r}
+probabilidad_cobertura <- 0.95
+alfa <- 1 - probabilidad_cobertura
+
+percentil <- qnorm(1 - alfa / 2)
+error_estandar <- sqrt(varianza_directo)
+intervalo_confianza_directo <- estimacion_directo + c(-1, 1) * error_estandar * percentil
+```
+
+\( (`r intervalo_confianza_directo`) \)
+
+
+### MC muestreo estradificado
+
+1) Generacion
+
+- mirar la funcion
+```{r}
+library(ggplot2)
+
+ggplot() +
+  geom_function(fun = g) +
+  xlim(0, 1)
+```
+
+-   eligir los estratos (asignacion proporcional)
+```{r}
+estratos <- data.frame(
+  min = c(0, 5/8, 0.95),
+  max = c(5/8, 0.95, 1),
+  probabilidad = c(5/8, 0.95 - 5/8, 0.05)
+)
+
+ggplot() +
+  geom_function(fun = g) +
+  xlim(0, 1) +
+  geom_vline(xintercept = estratos$min, col = "red") + 
+  geom_vline(xintercept = estratos$max , col = "blue") 
+
+```
+
+-   generar en los estratos
+```{r}
+genera_valor_aleatorio_en_estrato <- function(numero_estrato) {
+  estrato <- estratos[numero_estrato, ]
+  runif(1, min = estrato$min, max = estrato$max)
+}
+```
+
+#### Asignacion proporcional
+2) Replicacion
+```{r}
+n_estratos <- n * estratos$probabilidad
+
+# Aseguramos valores enteros
+n_estratos <- ceiling(n_estratos)
+
+# Aseguramos al menos dos valores en cada estrato
+n_estratos <- pmax(n_estratos, 2)
+
+cantidad_estratos <- nrow(estratos)
+
+coste_estratificado_proporcional <- bench::mark(
+  {
+    valores <- purrr::map2(
+      seq_len(cantidad_estratos),
+      n_estratos,
+      \(numero_estrato, n_estrato) {
+        replicate(n_estrato, {
+          x <- genera_valor_aleatorio_en_estrato(numero_estrato)
+          g(x)
+        })
+      }
+    )
+  },
+  iterations = 10,
+  time_unit = unidad_de_tiempo
+)$median
+```
+
+3) Estimacion
+```{r}
+estimacion_estratificado_proporcional <- mean(unlist(valores))
+varianza_estratificado_proporcional <- valores |>
+  purrr::map_dbl(var) |>
+  weighted.mean(w = estratos$probabilidad) |>
+  magrittr::divide_by(n)
+eficiencia_estratificado_proporcional <-
+  1 / (varianza_estratificado_proporcional *
+    coste_estratificado_proporcional)
+```
+
+Intervalo de confianza:
+```{r}
+probabilidad_cobertura <- 0.95
+alfa <- 1 - probabilidad_cobertura
+
+percentil <- qnorm(1 - alfa / 2)
+error_estandar <- sqrt(varianza_estratificado_proporcional)
+intervalo_confianza_estratificado_proporcional <- estimacion_estratificado_proporcional + c(-1, 1) * error_estandar * percentil
+
+intervalo_confianza_estratificado_proporcional
+```
+
+
+#### Asignacion optima
+2) Replicacion
+```{r}
+n_tanteo <- 100
+
+coste_estratificado_optimo <- bench::mark(
+  {
+    # Estimación de las varianzas de los estratos
+    n_estratos <- (n_tanteo * estratos$probabilidad) |>
+      ceiling() |>
+      pmax(2)
+    valores <- purrr::map2(
+      seq_len(cantidad_estratos),
+      n_estratos,
+      \(numero_estrato, n_estrato) {
+        replicate(n_estrato, {
+          x <- genera_valor_aleatorio_en_estrato(numero_estrato)
+          g(x)
+        })
+      }
+    )
+
+    # Cantidad óptima de valores en cada estrato
+    sigmas <- purrr::map_dbl(valores, sd)
+    n_estratos <-
+      (n * estratos$probabilidad * sigmas /
+        sum(estratos$probabilidad * sigmas)) |>
+      ceiling() |>
+      pmax(2)
+
+    # Generación de valores en cada estrato
+    valores <- purrr::map2(
+      seq_len(cantidad_estratos),
+      n_estratos,
+      \(numero_estrato, n_estrato) {
+        replicate(n_estrato, {
+          x <- genera_valor_aleatorio_en_estrato(numero_estrato)
+          g(x)
+        })
+      }
+    )
+  },
+  iterations = 10,
+  time_unit = unidad_de_tiempo
+)$median
+```
+
+3) Estimacion
+```{r}
+estimacion_estratificado_optimo <- valores |>
+  purrr::map_dbl(mean) |>
+  weighted.mean(w = estratos$probabilidad)
+varianza_estratificado_optimo <- valores |>
+  purrr::map_dbl(sd) |>
+  weighted.mean(w = estratos$probabilidad) |>
+  magrittr::raise_to_power(2) |>
+  magrittr::divide_by(n)
+eficiencia_estratificado_optimo <-
+  1 / (varianza_estratificado_optimo *
+    coste_estratificado_optimo)
+```
+
+Intervalo de confianza:
+```{r}
+probabilidad_cobertura <- 0.95
+alfa <- 1 - probabilidad_cobertura
+
+percentil <- qnorm(1 - alfa / 2)
+error_estandar <- sqrt(varianza_estratificado_optimo)
+intervalo_confianza_estratificado_optimo <- estimacion_estratificado_optimo + c(-1, 1) * error_estandar * percentil
+
+intervalo_confianza_estratificado_optimo
+```
+
+
+
+### MC por importancia
+
+1) Generacion
+- selecion de una distrinucion instrumental
+```{r}
+alfa_instrumental <- 6
+beta_instrumental <- 1.5
+
+ggplot() +
+  geom_function(fun = g, aes(colour = "g")) +
+  geom_function(fun = dunif, aes(colour = "unif")) +
+  geom_function(
+    fun = dbeta,
+    args = list(shape1 = alfa_instrumental, shape2 = beta_instrumental),
+    aes(colour = "beta")
+  )
+  
+  xlim(0, 1)
+```
+
+-   generacion
+```{r}
+genera_valor_aleatorio <- function() {
+  rbeta(1, shape1 = alfa_instrumental, shape2 = beta_instrumental)
+}
+
+razon_de_verosimilitud <- function(x) {
+  dunif(x) /
+    dbeta(x, shape1 = alfa_instrumental, shape2 = beta_instrumental)
+}
+
+g_por_verosimilitud <- function(x) {
+  g(x) * razon_de_verosimilitud(x)
+}
+```
+
+2) Replicacion
+```{r}
+coste_importancia <- bench::mark(
+  {
+    valores <- replicate(n, {
+      x <- genera_valor_aleatorio()
+      g_por_verosimilitud(x)
+    })
+  },
+  iterations = 10,
+  time_unit = unidad_de_tiempo
+)$median
+```
+
+3) Estimacion
+```{r}
+estimacion_importancia <- mean(valores)
+varianza_importancia <- var(valores) / n
+eficiencia_importancia <-
+  1 / (varianza_importancia * coste_importancia)
+```
+
+Intervalo de confianza:
+```{r}
+probabilidad_cobertura <- 0.95
+alfa <- 1 - probabilidad_cobertura
+
+percentil <- qnorm(1 - alfa / 2)
+error_estandar <- sqrt(varianza_importancia)
+intervalo_confianza_importancia <- estimacion_importancia + c(-1, 1) * error_estandar * percentil
+
+intervalo_confianza_importancia
+```
+
+### Resultados y intervalos de confianza
+```{r}
+knitr::kable(
+  data.frame(
+    `Método` = c(
+      "Directo",
+      "Estratificado proporcional",
+      "Estratificado óptimo",
+      "Importancia"
+    ),
+    `Estimación` = c(
+      estimacion_directo,
+      estimacion_estratificado_proporcional,
+      estimacion_estratificado_optimo,
+      estimacion_importancia
+    ),
+    Varianza = c(
+      varianza_directo,
+      varianza_estratificado_proporcional,
+      varianza_estratificado_optimo,
+      varianza_importancia
+    ),
+    Coste = c(
+      coste_directo,
+      coste_estratificado_proporcional,
+      coste_estratificado_optimo,
+      coste_importancia
+    ),
+    Eficiencia = c(
+      eficiencia_directo,
+      eficiencia_estratificado_proporcional,
+      eficiencia_estratificado_optimo,
+      eficiencia_importancia
+    )
+  ),
+  digits = 10
+)
+```
+
+Intervalos -\> utilizando el metodo de muestreo por importancia
+```{r}
+alfa <- 0.003
+probabilidad_cobertura <- 1 - alfa
+
+percentil <- qnorm(1-alfa/2)
+error_estandar <- sqrt(varianza_importancia)
+
+intervalo_confianza <- estimacion_importancia + c(-1,1)*error_estandar*percentil
+intervalo_confianza
+```
+
+## Ejercicio 2 (+ int. conf.)
+```{r}
+rm(list = ls())
+set.seed(050700)
+unidad_de_tiempo <- "ms"
+
+n <- 1e4
+
+g <- function(x){
+    -30*cos(pi*x)*x^4*(1 - x^4)
+}
+```
+
+### MC directo
+
+1) Generacion
+```{r}
+genera_valor_aleatorio <- function(){
+    runif(1, min = 0, max = 1) #generemos un valor en el interval [0,1]
+}
+```
+
+2) Replicacion
+```{r}
+coste_directo <- bench::mark(
+  {
+    valores<- replicate(n, {
+      x <- genera_valor_aleatorio()
+      g(x)
+    })
+  },
+  iterations = 10,
+  time_unit = unidad_de_tiempo
+)$median
+```
+
+3) Estimacion
+```{r}
+estimacion_directo <- mean(valores)
+varianza_directo <- var(valores) / n
+eficiencia_directo <- 1 / (varianza_directo * coste_directo)
+```
+
+Intervalo de confianza:
+```{r}
+probabilidad_cobertura <- 0.95
+alfa <- 1 - probabilidad_cobertura
+
+percentil <- qnorm(1 - alfa / 2)
+error_estandar <- sqrt(varianza_directo)
+intervalo_confianza_directo <- estimacion_directo + c(-1, 1) * error_estandar * percentil
+intervalo_confianza_directo
+```
+
+### MC muestreo estratificado
+
+1) Generacion
+- mirar la funcion
+```{r}
+library(ggplot2)
+
+ggplot() +
+  geom_function(fun = g) +
+  xlim(0, 1)
+```
+
+-   eligir los estratos (asignacion proporcional)
+```{r}
+estratos <- data.frame(
+  min = c(0, 0.5, 0.75, 0.95),
+  max = c(0.5, 0.75, 0.95, 1),
+  probabilidad = c(0.5, 0.25, 0.2, 0.05)
+)
+
+ggplot() +
+  geom_function(fun = g) +
+  xlim(0, 1) +
+  geom_vline(xintercept = estratos$min, col = "red") + 
+  geom_vline(xintercept = estratos$max , col = "blue") 
+
+```
+
+-   generar en los estratos
+```{r}
+genera_valor_aleatorio_en_estrato <- function(numero_estrato) {
+  estrato <- estratos[numero_estrato, ]
+  runif(1, min = estrato$min, max = estrato$max)
+}
+```
+
+
+#### Asignacion proporcional
+2) Replicacion
+```{r}
+n_estratos <- n * estratos$probabilidad
+
+# Aseguramos valores enteros
+n_estratos <- ceiling(n_estratos)
+
+# Aseguramos al menos dos valores en cada estrato
+n_estratos <- pmax(n_estratos, 2)
+
+cantidad_estratos <- nrow(estratos)
+
+coste_estratificado_proporcional <- bench::mark(
+  {
+    valores <- purrr::map2(
+      seq_len(cantidad_estratos),
+      n_estratos,
+      \(numero_estrato, n_estrato) {
+        replicate(n_estrato, {
+          x <- genera_valor_aleatorio_en_estrato(numero_estrato)
+          g(x)
+        })
+      }
+    )
+  },
+  iterations = 10,
+  time_unit = unidad_de_tiempo
+)$median
+```
+
+3) Estimacion
+```{r}
+estimacion_estratificado_proporcional <- mean(unlist(valores))
+varianza_estratificado_proporcional <- valores |>
+  purrr::map_dbl(var) |>
+  weighted.mean(w = estratos$probabilidad) |>
+  magrittr::divide_by(n)
+eficiencia_estratificado_proporcional <-
+  1 / (varianza_estratificado_proporcional *
+    coste_estratificado_proporcional)
+```
+
+Intervalos de confianza:
+```{r}
+probabilidad_cobertura <- 0.95
+alfa <- 1 - probabilidad_cobertura
+
+percentil <- qnorm(1 - alfa / 2)
+error_estandar <- sqrt(varianza_estratificado_proporcional)
+intervalo_confianza_estratificado_proporcional <- estimacion_estratificado_proporcional + c(-1, 1) * error_estandar * percentil
+intervalo_confianza_estratificado_proporcional
+```
+
+#### Asignacion optima
+2) Replicacion
+```{r}
+n_tanteo <- 100
+
+coste_estratificado_optimo <- bench::mark(
+  {
+    # Estimación de las varianzas de los estratos
+    n_estratos <- (n_tanteo * estratos$probabilidad) |>
+      ceiling() |>
+      pmax(2)
+    valores <- purrr::map2(
+      seq_len(cantidad_estratos),
+      n_estratos,
+      \(numero_estrato, n_estrato) {
+        replicate(n_estrato, {
+          x <- genera_valor_aleatorio_en_estrato(numero_estrato)
+          g(x)
+        })
+      }
+    )
+
+    # Cantidad óptima de valores en cada estrato
+    sigmas <- purrr::map_dbl(valores, sd)
+    n_estratos <-
+      (n * estratos$probabilidad * sigmas /
+        sum(estratos$probabilidad * sigmas)) |>
+      ceiling() |>
+      pmax(2)
+
+    # Generación de valores en cada estrato
+    valores <- purrr::map2(
+      seq_len(cantidad_estratos),
+      n_estratos,
+      \(numero_estrato, n_estrato) {
+        replicate(n_estrato, {
+          x <- genera_valor_aleatorio_en_estrato(numero_estrato)
+          g(x)
+        })
+      }
+    )
+  },
+  iterations = 10,
+  time_unit = unidad_de_tiempo
+)$median
+```
+
+3) Estimacion
+```{r}
+estimacion_estratificado_optimo <- valores |>
+  purrr::map_dbl(mean) |>
+  weighted.mean(w = estratos$probabilidad)
+varianza_estratificado_optimo <- valores |>
+  purrr::map_dbl(sd) |>
+  weighted.mean(w = estratos$probabilidad) |>
+  magrittr::raise_to_power(2) |>
+  magrittr::divide_by(n)
+eficiencia_estratificado_optimo <-
+  1 / (varianza_estratificado_optimo *
+    coste_estratificado_optimo)
+```
+
+Intervalos de confianza:
+```{r}
+probabilidad_cobertura <- 0.95
+alfa <- 1 - probabilidad_cobertura
+
+percentil <- qnorm(1 - alfa / 2)
+error_estandar <- sqrt(varianza_estratificado_optimo)
+intervalo_confianza_estratificado_optimo <- estimacion_estratificado_optimo + c(-1, 1) * error_estandar * percentil
+intervalo_confianza_estratificado_optimo
+```
+
+### MC por importancia 
+
+1) Generacion
+- selecion de una distrinucion instrumental
+```{r}
+alfa_instrumental <- 20
+beta_instrumental <- 4
+
+ggplot() +
+  geom_function(fun = g, aes(colour = "g")) +
+  geom_function(fun = dunif, aes(colour = "unif")) +
+  geom_function(
+    fun = dbeta,
+    args = list(shape1 = alfa_instrumental, shape2 = beta_instrumental),
+    aes(colour = "beta")
+  )
+  
+  xlim(0, 1)
+```
+
+- generacion
+```{r}
+genera_valor_aleatorio <- function() {
+  rbeta(1, shape1 = alfa_instrumental, shape2 = beta_instrumental)
+}
+
+razon_de_verosimilitud <- function(x) {
+  dunif(x) /
+    dbeta(x, shape1 = alfa_instrumental, shape2 = beta_instrumental)
+}
+
+g_por_verosimilitud <- function(x) {
+  g(x) * razon_de_verosimilitud(x)
+}
+```
+
+2) Replicacion
+```{r}
+coste_importancia <- bench::mark(
+  {
+    valores <- replicate(n, {
+      x <- genera_valor_aleatorio()
+      g_por_verosimilitud(x)
+    })
+  },
+  iterations = 10,
+  time_unit = unidad_de_tiempo
+)$median
+```
+
+3) Estimacion
+```{r}
+estimacion_importancia <- mean(valores)
+varianza_importancia <- var(valores) / n
+eficiencia_importancia <-
+  1 / (varianza_importancia * coste_importancia)
+```
+
+Intervalo de confianza
+```{r}
+probabilidad_cobertura <- 0.95
+alfa <- 1 - probabilidad_cobertura
+
+percentil <- qnorm(1 - alfa / 2)
+error_estandar <- sqrt(varianza_importancia)
+intervalo_confianza_importancia <- estimacion_importancia + c(-1, 1) * error_estandar * percentil
+intervalo_confianza_importancia
+```
+
+
+### Resultados y intervalos de confianza
+```{r}
+knitr::kable(
+  data.frame(
+    `Método` = c(
+      "Directo",
+      "Estratificado proporcional",
+      "Estratificado óptimo",
+      "Importancia"
+    ),
+    `Estimación` = c(
+      estimacion_directo,
+      estimacion_estratificado_proporcional,
+      estimacion_estratificado_optimo,
+      estimacion_importancia
+    ),
+    Varianza = c(
+      varianza_directo,
+      varianza_estratificado_proporcional,
+      varianza_estratificado_optimo,
+      varianza_importancia
+    ),
+    Coste = c(
+      coste_directo,
+      coste_estratificado_proporcional,
+      coste_estratificado_optimo,
+      coste_importancia
+    ),
+    Eficiencia = c(
+      eficiencia_directo,
+      eficiencia_estratificado_proporcional,
+      eficiencia_estratificado_optimo,
+      eficiencia_importancia
+    )
+  ),
+  digits = 10
+)
+```
+
+Intervalos -\> utilizando el metodo de muestreo por importancia
+```{r}
+alfa <- 0.003
+probabilidad_cobertura <- 1 - alfa
+
+percentil <- qnorm(1-alfa/2)
+error_estandar <- sqrt(varianza_importancia)
+
+intervalo_confianza <- estimacion_importancia + c(-1,1)*error_estandar*percentil
+intervalo_confianza
+```
+
+## Ejercicio 3
+```{r}
+rm(list = ls())
+set.seed(050700)
+unidad_de_tiempo <- "ms"
+
+n <- 1e5
+
+g <- function(x){
+    exp(-x^2/2)/sqrt(x*(1-x))
+}
+```
+
+
+### MC directo 
+
+1) Generacion
+```{r}
+genera_valor_aleatorio <- function(){
+    runif(1, 
+          min = 0, 
+          max = 1) #generemos un valor en el interval [0,1]
+}
+```
+
+2) Replicacion
+```{r}
+coste_directo <- bench::mark(
+  {
+    valores <- replicate(n, {
+      x <- genera_valor_aleatorio()
+      g(x)
+    })
+  },
+  iterations = 10,
+  time_unit = unidad_de_tiempo
+)$median
+```
+
+3) Estimacion
+```{r}
+estimacion_directo <- mean(valores)
+varianza_directo <- var(valores) / n
+eficiencia_directo <- 1 / (varianza_directo * coste_directo)
+```
+
+### Muestreo estratificado
+
+1) Generacion
+
+- mirar la funcion
+```{r}
+library(ggplot2)
+
+ggplot() +
+  geom_function(fun = g) +
+  xlim(0, 1)
+```
+
+-   eligir los estratos (asignacion proporcional)
+```{r}
+estratos <- data.frame(
+  min = c(0, 0.2, 0.9),
+  max = c(0.2, 0.9, 1),
+  probabilidad = c(0.2, 0.7, 0.1)
+)
+
+ggplot() +
+  geom_function(fun = g) +
+  xlim(0, 1) +
+  geom_vline(xintercept = estratos$min, col = "red") + 
+  geom_vline(xintercept = estratos$max , col = "blue") 
+
+```
+
+-   generar en los estratos
+```{r}
+genera_valor_aleatorio_en_estrato <- function(numero_estrato) {
+  estrato <- estratos[numero_estrato, ]
+  runif(1, min = estrato$min, max = estrato$max)
+}
+```
+
+#### Asignacion proporcional
+2) Replicacion
+```{r}
+n_estratos <- n * estratos$probabilidad
+
+# Aseguramos valores enteros
+n_estratos <- ceiling(n_estratos)
+
+# Aseguramos al menos dos valores en cada estrato
+n_estratos <- pmax(n_estratos, 2)
+
+cantidad_estratos <- nrow(estratos)
+
+coste_estratificado_proporcional <- bench::mark(
+  {
+    valores <- purrr::map2(
+      seq_len(cantidad_estratos),
+      n_estratos,
+      \(numero_estrato, n_estrato) {
+        replicate(n_estrato, {
+          x <- genera_valor_aleatorio_en_estrato(numero_estrato)
+          g(x)
+        })
+      }
+    )
+  },
+  iterations = 10,
+  time_unit = unidad_de_tiempo
+)$median
+```
+
+3) Estimacion
+```{r}
+estimacion_estratificado_proporcional <- mean(unlist(valores))
+varianza_estratificado_proporcional <- valores |>
+  purrr::map_dbl(var) |>
+  weighted.mean(w = estratos$probabilidad) |>
+  magrittr::divide_by(n)
+eficiencia_estratificado_proporcional <-
+  1 / (varianza_estratificado_proporcional *
+    coste_estratificado_proporcional)
+```
+
+
+#### Asignacion optima
+2) Replicacion
+```{r}
+n_tanteo <- 100
+
+coste_estratificado_optimo <- bench::mark(
+  {
+    # Estimación de las varianzas de los estratos
+    n_estratos <- (n_tanteo * estratos$probabilidad) |>
+      ceiling() |>
+      pmax(2)
+    valores <- purrr::map2(
+      seq_len(cantidad_estratos),
+      n_estratos,
+      \(numero_estrato, n_estrato) {
+        replicate(n_estrato, {
+          x <- genera_valor_aleatorio_en_estrato(numero_estrato)
+          g(x)
+        })
+      }
+    )
+
+    # Cantidad óptima de valores en cada estrato
+    sigmas <- purrr::map_dbl(valores, sd)
+    n_estratos <-
+      (n * estratos$probabilidad * sigmas /
+        sum(estratos$probabilidad * sigmas)) |>
+      ceiling() |>
+      pmax(2)
+
+    # Generación de valores en cada estrato
+    valores <- purrr::map2(
+      seq_len(cantidad_estratos),
+      n_estratos,
+      \(numero_estrato, n_estrato) {
+        replicate(n_estrato, {
+          x <- genera_valor_aleatorio_en_estrato(numero_estrato)
+          g(x)
+        })
+      }
+    )
+  },
+  iterations = 10,
+  time_unit = unidad_de_tiempo
+)$median
+```
+
+3) Estimacion
+```{r}
+estimacion_estratificado_optimo <- valores |>
+  purrr::map_dbl(mean) |>
+  weighted.mean(w = estratos$probabilidad)
+varianza_estratificado_optimo <- valores |>
+  purrr::map_dbl(sd) |>
+  weighted.mean(w = estratos$probabilidad) |>
+  magrittr::raise_to_power(2) |>
+  magrittr::divide_by(n)
+eficiencia_estratificado_optimo <-
+  1 / (varianza_estratificado_optimo *
+    coste_estratificado_optimo)
+```
+
+
+
+### MC por importancia 
+
+1) Generacion
+- selecion de una distrinucion instrumental
+```{r}
+alfa_instrumental <- 0.5
+beta_instrumental <- 0.5
+
+ggplot() +
+  geom_function(fun = g, aes(colour = "g")) +
+  geom_function(fun = dunif, aes(colour = "unif")) +
+  geom_function(
+    fun = dbeta,
+    args = list(shape1 = alfa_instrumental, shape2 = beta_instrumental),
+    aes(colour = "beta")
+  )
+  
+  xlim(0, 1)
+```
+
+-   generacion
+```{r}
+genera_valor_aleatorio <- function() {
+  rbeta(1, shape1 = alfa_instrumental, shape2 = beta_instrumental)
+}
+
+razon_de_verosimilitud <- function(x) {
+  dunif(x) /
+    dbeta(x, shape1 = alfa_instrumental, shape2 = beta_instrumental)
+}
+
+g_por_verosimilitud <- function(x) {
+  g(x) * razon_de_verosimilitud(x)
+}
+```
+
+2) Replicacion
+```{r}
+coste_importancia <- bench::mark(
+  {
+    valores <- replicate(n, {
+      x <- genera_valor_aleatorio()
+      g_por_verosimilitud(x)
+    })
+  },
+  iterations = 10,
+  time_unit = unidad_de_tiempo
+)$median
+```
+
+3) Estimacion
+```{r}
+estimacion_importancia <- mean(valores)
+varianza_importancia <- var(valores) / n
+eficiencia_importancia <-
+  1 / (varianza_importancia * coste_importancia)
+```
+
+### Resultados y intervalos de confianza
+```{r}
+knitr::kable(
+  data.frame(
+    `Método` = c(
+      "Directo",
+      "Estratificado proporcional",
+      "Estratificado óptimo",
+      "Importancia"
+    ),
+    `Estimación` = c(
+      estimacion_directo,
+      estimacion_estratificado_proporcional,
+      estimacion_estratificado_optimo,
+      estimacion_importancia
+    ),
+    Varianza = c(
+      varianza_directo,
+      varianza_estratificado_proporcional,
+      varianza_estratificado_optimo,
+      varianza_importancia
+    ),
+    Coste = c(
+      coste_directo,
+      coste_estratificado_proporcional,
+      coste_estratificado_optimo,
+      coste_importancia
+    ),
+    Eficiencia = c(
+      eficiencia_directo,
+      eficiencia_estratificado_proporcional,
+      eficiencia_estratificado_optimo,
+      eficiencia_importancia
+    )
+  ),
+  digits = 10
+)
+```
+
+Intervalos 
+-\> utilizando el metodo de muestreo por importancia
+```{r}
+alfa <- 0.003
+probabilidad_cobertura <- 1 - alfa
+
+percentil <- qnorm(1-alfa/2)
+error_estandar <- sqrt(varianza_importancia)
+
+intervalo_confianza <- estimacion_importancia + c(-1,1)*error_estandar*percentil
+intervalo_confianza
+```
+
+## Ejercicio 4: gen. por otra distr.
+```{r}
+rm(list = ls())
+set.seed(050700)
+unidad_de_tiempo <- "ms"
+
+n <- 1e5
+
+f <- function(x){
+    exp(-x/2)/sqrt(x)
+}
+```
+
+### Generacion por una exponencial
+Obseravacion: Basicamente es un muestreo por importancia.
+
+Se observa como la funcion f es una exponencial E(1/2) (funcion de densidad $f(x) = \frac{1}{2}}e^{\frac{-x}{2}}$) moltiplicada por $2\sqrt{\frac{1}{x}}$. Asi que podemos generar numeros por esta distribucion y calcolar el integral de $g(x)$ definida como segue
+```{r}
+g <- function(x){
+  2/sqrt(x)
+}
+```
+
+#### MC directo
+1) generacion
+```{r}
+genera_valor_aleatorio <- function(){
+    rexp(n = 1, 
+         rate = 1/2) #generemos un valor en el interval [0,+inf)
+}
+```
+
+2) replicacion
+
+MC directo
+```{r}
+coste_directo <- bench::mark(
+  {
+    valores <- replicate(n, {
+      x <- genera_valor_aleatorio()
+      g(x)
+    })
+  },
+  iterations = 10,
+  time_unit = unidad_de_tiempo
+)$median
+```
+
+3) Estimacion
+```{r}
+estimacion_directo <- mean(valores)
+varianza_directo <- var(valores) / n
+eficiencia_directo <- 1 / (varianza_directo * coste_directo)
+```
+
+
+
+#### MC por importancia
+
+1) Generacion
+- selecion de una distrinucion instrumental: eligimos una distribuccion con el supporte en [0,+Inf) como la Gamma
+```{r}
+shape_instrumental <- 0.5
+scale_instrumental <- 1
+
+library(ggplot2)
+
+ggplot() +
+  geom_function(fun = g, aes(colour = "g")) +
+  geom_function(fun = dunif, aes(colour = "unif")) +
+  geom_function(
+    fun = dgamma,
+    args = list(shape = shape_instrumental, scale = scale_instrumental),
+    aes(colour = "Gamma")
+  )
+  
+  xlim(0, 3)
+```
+
+-   generacion
+```{r}
+genera_valor_aleatorio <- function() {
+  rgamma(1, shape = shape_instrumental, scale = scale_instrumental)
+}
+
+razon_de_verosimilitud <- function(x) {
+  dexp(x, rate = 1/2) /
+    dgamma(x, shape = shape_instrumental, scale = scale_instrumental)
+}
+
+g_por_verosimilitud <- function(x) {
+  g(x) * razon_de_verosimilitud(x)
+}
+```
+
+2) Replicacion
+MC por importancia
+```{r}
+coste_importancia <- bench::mark(
+  {
+    valores <- replicate(n, {
+      x <- genera_valor_aleatorio()
+      g_por_verosimilitud(x)
+    })
+  },
+  iterations = 10,
+  time_unit = unidad_de_tiempo
+)$median
+```
+
+3) Estimacion
+MC por importancia
+```{r}
+estimacion_importancia <- mean(valores)
+varianza_importancia <- var(valores) / n
+eficiencia_importancia <-
+  1 / (varianza_importancia * coste_importancia)
+```
+
+### Cambio de variable
+Un otro metodo posible es utilizar un cambio de variable para generar siempre por una uniforme [0,1]
+
+Cambio de variable: $x = -\ln{u}$
+```{r}
+h <- function(u){
+  1/sqrt(-u*log(u))
+}
+```
+
+1) Generacion
+```{r}
+genera_valor_aleatorio_2 <- function(){
+    runif(1) #generemos un valor en el interval (0,1)
+}
+```
+
+2) Replicacion
+
+```{r}
+coste_directo_2 <- bench::mark(
+  {
+    valores <- replicate(n, {
+      x <- genera_valor_aleatorio_2()
+      h(x)
+    })
+  },
+  iterations = 10,
+  time_unit = unidad_de_tiempo
+)$median
+```
+
+3) Estimacion
+MC directo
+```{r}
+estimacion_directo_2 <- mean(valores)
+varianza_directo_2 <- var(valores) / n
+eficiencia_directo_2 <- 1 / (varianza_directo_2 * coste_directo_2)
+```
+
+### Resultados y intervalos de confianza
+```{r}
+knitr::kable(
+  data.frame(
+    `Método` = c(
+      "Directo",
+      "Importancia",
+      "Directo con cambio de variable"
+    ),
+    `Estimación` = c(
+      estimacion_directo,
+      estimacion_importancia,
+      estimacion_directo_2
+    ),
+    Varianza = c(
+      varianza_directo,
+      varianza_importancia,
+      varianza_directo_2
+    ),
+    Coste = c(
+      coste_directo,
+      coste_importancia,
+      coste_directo_2
+    ),
+    Eficiencia = c(
+      eficiencia_directo,
+      eficiencia_importancia,
+      eficiencia_directo_2
+    )
+  ),
+  digits = 10
+)
+```
+
+Intervalos -\> utilizando el metodo de muestreo por importancia
+```{r}
+alfa <- 0.003
+probabilidad_cobertura <- 1 - alfa
+
+percentil <- qnorm(1-alfa/2)
+error_estandar <- sqrt(varianza_importancia)
+
+intervalo_confianza <- estimacion_importancia + c(-1,1)*error_estandar*percentil
+intervalo_confianza
+```
+
+
+## Ejercicio 5: gen. por otra distr.
+```{r}
+rm(list = ls())
+set.seed(050700)
+unidad_de_tiempo <- "ms"
+
+n <- 1e5
+
+f <- function(x){
+    exp(-x^2/2 - x)
+}
+```
+
+Observacion: basicamente es una forma de mustreo por importancia
+
+Se observa como la funcion f es una normal N(0,1) (funcion de densidad $f(x) = \frac{1}{\sqrt{2\pi}}e^{\frac{-x^2}{2}}$) moltiplicada por $\sqrt{2\pi} e^{-x}$. Asi que podemos generar numeros por esta distribucion y calcolar el integral de $g(x)$ definida como segue
+```{r}
+g <- function(x){
+  sqrt(2*pi)*exp(-x)
+}
+```
+
+
+### MC directo
+```{r}
+genera_valor_aleatorio <- function(){
+    rnorm(n = 1, mean = 0, sd = 1) #generemos un valor en el interval [0,+inf)
+}
+```
+
+1) Generacion
+```{r}
+genera_valor_aleatorio <- function(){
+    rnorm(n = 1, mean = 0, sd = 1) #generemos un valor en el interval [0,+inf)
+}
+```
+
+2) Replicacion
+```{r}
+coste_directo <- bench::mark(
+  {
+    valores <- replicate(n, {
+      x <- genera_valor_aleatorio()
+      g(x)
+    })
+  },
+  iterations = 10,
+  time_unit = unidad_de_tiempo
+)$median
+```
+
+3) Estimacion
+```{r}
+estimacion_directo <- mean(valores_directo)
+varianza_directo <- var(valores_directo) / n
+eficiencia_directo <- 1 / (varianza_directo * coste_directo)
+```
+
+### Resultados y intervalos de confianza
+```{r}
+alfa <- 0.003
+probabilidad_cobertura <- 1 - alfa
+
+percentil <- qnorm(1-alfa/2)
+error_estandar <- sqrt(varianza_directo)
+
+intervalo_confianza <- estimacion_directo + c(-1,1)*error_estandar*percentil
+intervalo_confianza
+```
+
+## Ejercicio 6
+```{r}
+rm(list = ls())
+set.seed(050700)
+unidad_de_tiempo <- "ms"
+```
+
+```{r}
+g <- function(u) {
+  u_1 <- u[[1]]
+  u_2 <- u[[2]]
+  1/(3 + cos(u_1) + sin(u_2))
+}
+```
+
+### MC directo
+1) Generacion
+```{r}
+genera_vector_aleatorio <- function() {
+  runif(n = 2)
+}
+```
+
+2) Replicacion
+```{r}
+n <- 1e4
+coste_directo <- bench::mark(
+  {
+    valores <- replicate(n, {
+      u <- genera_vector_aleatorio()
+      g(u)
+    })
+  },
+  iterations = 10,
+  time_unit = unidad_de_tiempo
+)$median
+```
+
+3) Estimacion
+```{r}
+estimacion_directo <- mean(valores)
+varianza_directo <- var(valores) / n
+eficiencia_directo <- 1 / (varianza_directo * coste_directo)
+```
+
+### MC muestreo estratificado con asignacion optima
+1) Generacion
+- generacion de los estratos
+```{r}
+genera_subintervalos <- function(numero_subintervalos) {
+  extremos_derechos <-
+    seq_len(numero_subintervalos) / numero_subintervalos
+  extremos_izquierdos <-
+    c(0, extremos_derechos[-numero_subintervalos])
+  data.frame(
+    min = extremos_izquierdos,
+    max = extremos_derechos
+  )
+}
+
+# Como en cada dimensión se va a considerar el mismo número de
+# subintervalos, basta guardar la información una única vez
+numero_subintervalos <- 5
+subintervalos <- genera_subintervalos(numero_subintervalos)
+
+# Los estratos vienen dados por todas las combinaciones posibles
+estratos <- expand.grid(
+  seq_len(numero_subintervalos),
+  seq_len(numero_subintervalos)
+)
+cantidad_estratos <- nrow(estratos)
+estratos$probabilidad <- 1 / cantidad_estratos
+```
+
+- generacion valores en los estratos
+```{r}
+genera_vector_aleatorio_en_estrato <- function(numero_estrato) {
+  numero_estrato_u_1 <- estratos[numero_estrato, 1]
+  numero_estrato_u_2 <- estratos[numero_estrato, 2]
+  estrato_u_1 <- subintervalos[numero_estrato_u_1, ]
+  estrato_u_2 <- subintervalos[numero_estrato_u_2, ]
+  c(
+    runif(1, min = estrato_u_1$min, max = estrato_u_1$max),
+    runif(1, min = estrato_u_2$min, max = estrato_u_2$max)
+  )
+}
+```
+
+2) Replicacion
+```{r}
+n_tanteo <- 50 * cantidad_estratos
+
+coste_estratificado_optimo <- bench::mark(
+  {
+    # Estimación de las varianzas de los estratos
+    n_estratos <- (n_tanteo * estratos$probabilidad) |> 
+      ceiling() |> 
+      pmax(2)
+    valores <- purrr::map2(
+      seq_len(cantidad_estratos),
+      n_estratos,
+      \(numero_estrato, n_estrato) {
+        replicate(n_estrato, {
+          u <- genera_vector_aleatorio_en_estrato(numero_estrato)
+          g(u)
+        })
+      }
+    )
+
+    # Cantidad óptima de valores en cada estrato
+    sigmas <- purrr::map_dbl(valores, sd)
+    n_estratos <- 
+      (n * estratos$probabilidad * sigmas /
+         sum(estratos$probabilidad * sigmas)) |> 
+      ceiling() |> 
+      pmax(2)
+
+    # Generación de valores en cada estrato
+    valores <- purrr::map2(
+      seq_len(cantidad_estratos),
+      n_estratos,
+      \(numero_estrato, n_estrato) {
+        replicate(n_estrato, {
+          u <- genera_vector_aleatorio_en_estrato(numero_estrato)
+          g(u)
+        })
+      }
+    )
+  },
+  iterations = 10,
+  time_unit = unidad_de_tiempo
+)$median
+
+```
+
+3) Estimacion
+```{r}
+estimacion_estratificado_optimo <- valores |> 
+  purrr::map_dbl(mean) |> 
+  weighted.mean(w = estratos$probabilidad)
+varianza_estratificado_optimo <- valores |> 
+  purrr::map_dbl(sd) |> 
+  weighted.mean(w = estratos$probabilidad) |> 
+  magrittr::raise_to_power(2) |> 
+  magrittr::divide_by(n)
+eficiencia_estratificado_optimo <-
+  1 / (varianza_estratificado_optimo *
+    coste_estratificado_optimo)
+```
+
+
+### MC por importancia
+Generacion para muestreo por importancia
+
+- buscamos una distribucion instrumental
+```{r}
+alfa_instrumental_u_1 <- 3
+beta_instrumental_u_1 <- 1
+alfa_instrumental_u_2 <- 2
+beta_instrumental_u_2 <- 1
+
+densidad_nominal <- function(u) {
+  u_1 <- u[[1]]
+  u_2 <- u[[2]]
+  dunif(u_1) * dunif(u_2)
+}
+
+densidad_instrumental <- function(u) {
+  u_1 <- u[[1]]
+  u_2 <- u[[2]]
+  dbeta(u_1,
+        shape1 = alfa_instrumental_u_1,
+        shape2 = beta_instrumental_u_1) *
+    dbeta(u_2,
+          shape1 = alfa_instrumental_u_2,
+          shape2 = beta_instrumental_u_2)
+}
+
+library(plotly)
+
+malla <- data.frame(
+  u_1 = seq_len(100) / 100,
+  u_2 = seq_len(100) / 100
+)
+
+malla |> 
+  plot_ly(x = ~u_1, y = ~u_2) |> 
+  add_surface(z = outer(
+    malla$u_1, malla$u_2,
+    Vectorize(function(u_1, u_2) {
+      u <- c(u_1, u_2)
+      g(u) * densidad_nominal(u)
+    })
+  )) |> 
+  add_surface(z = outer(
+    malla$u_1, malla$u_2,
+    Vectorize(function(u_1, u_2) {
+      u <- c(u_1, u_2)
+      densidad_instrumental(u)
+    })
+  ))
+```
+
+- revision grafica
+```{r}
+malla |> 
+plot_ly(x = ~u_1, y = ~u_2) |> 
+  add_surface(z = outer(
+    malla$u_1, malla$u_2,
+    Vectorize(function(u_1, u_2) {
+      u <- c(u_1, u_2)
+      g(u)
+    })
+  )) |> 
+  add_surface(z = outer(
+    malla$u_1, malla$u_2,
+    Vectorize(function(u_1, u_2) {
+      u <- c(u_1, u_2)
+      densidad_nominal(u) / densidad_instrumental(u)
+    })
+  ))
+```
+
+- generacion por importancia
+```{r generacion-importancia}
+genera_vector_aleatorio <- function() {
+  c(
+    rbeta(1,
+          shape1 = alfa_instrumental_u_1,
+          shape2 = beta_instrumental_u_1),
+    rbeta(1,
+          shape1 = alfa_instrumental_u_2,
+          shape2 = beta_instrumental_u_2)
+  )
+}
+
+razon_de_verosimilitud <- function(u) {
+  densidad_nominal(u) / densidad_instrumental(u)
+}
+
+g_por_verosimilitud <- function(u) {
+  g(u) * razon_de_verosimilitud(u)
+}
+
+# Haciendo uso de la simplificación matemática indicada antes, una
+# implementación más eficiente para α_u_1=3, β_u_1=1, α_u_2=2 y β_u_2=1 sería
+# g_por_verosimilitud <- function(u) {
+#   u_1 <- u[[1]]
+#   u_2 <- u[[2]]
+#   (5 / 6) * (5 + 2 / u_1)^2 * (3 + 1 / u_2)
+# }
+```
+
+2) Replicacion
+```{r}
+coste_importancia_1 <- bench::mark(
+  {
+    valores_importancia <- replicate(n, {
+      u <- genera_vector_aleatorio()
+      g_por_verosimilitud(u)
+    })
+  },
+  iterations = 10,
+  time_unit = unidad_de_tiempo
+)$median
+```
+
+3) Estiamcion
+```{r}
+estimacion_importancia_1 <- mean(valores_importancia)
+varianza_importancia_1 <- var(valores_importancia) / n
+eficiencia_importancia_1 <-
+  1 / (varianza_importancia_1 * coste_importancia_1)
+```
+
+### Resultados
+```{r}
+knitr::kable(
+  data.frame(
+    `Método` = c(
+      "Directo",
+      "Estratificado óptimo",
+      "Importancia 1"
+    ),
+    `Estimación` = c(
+      estimacion_directo,
+      estimacion_estratificado_optimo,
+      estimacion_importancia_1
+    ),
+    Varianza = c(
+      varianza_directo,
+      varianza_estratificado_optimo,
+      varianza_importancia_1
+    ),
+    Coste = c(
+      coste_directo,
+      coste_estratificado_optimo,
+      coste_importancia_1
+    ),
+    Eficiencia = c(
+      eficiencia_directo,
+      eficiencia_estratificado_optimo,
+      eficiencia_importancia_1
+    )
+  ),
+  digits = 10
+)
+```
+
+## Ejercicio 7
+```{r}
+rm(list = ls())
+set.seed(050700)
+unidad_de_tiempo <- "ms"
+```
+
+```{r}
+g <- function(u) {
+  u_1 <- u[[1]]
+  u_2 <- u[[2]]
+  exp((u_1 + u_2)^2)
+}
+```
+
+
+### MC directo
+
+1) Generacion
+```{r}
+genera_vector_aleatorio <- function() {
+  runif(n = 2)
+}
+```
+
+2) Replicacion
+```{r}
+n <- 1e4
+coste_directo <- bench::mark(
+  {
+    valores <- replicate(n, {
+      u <- genera_vector_aleatorio()
+      g(u)
+    })
+  },
+  iterations = 10,
+  time_unit = unidad_de_tiempo
+)$median
+```
+
+3) Estimacion
+```{r}
+estimacion_directo <- mean(valores)
+varianza_directo <- var(valores) / n
+eficiencia_directo <- 1 / (varianza_directo * coste_directo)
+```
+
+### MC muestreo estratificado con asignacion optima
+1) Generacion
+- generacion de los estratos
+```{r}
+genera_subintervalos <- function(numero_subintervalos) {
+  extremos_derechos <-
+    seq_len(numero_subintervalos) / numero_subintervalos
+  extremos_izquierdos <-
+    c(0, extremos_derechos[-numero_subintervalos])
+  data.frame(
+    min = extremos_izquierdos,
+    max = extremos_derechos
+  )
+}
+
+# Como en cada dimensión se va a considerar el mismo número de
+# subintervalos, basta guardar la información una única vez
+numero_subintervalos <- 5
+subintervalos <- genera_subintervalos(numero_subintervalos)
+
+# Los estratos vienen dados por todas las combinaciones posibles
+estratos <- expand.grid(
+  seq_len(numero_subintervalos),
+  seq_len(numero_subintervalos)
+)
+cantidad_estratos <- nrow(estratos)
+estratos$probabilidad <- 1 / cantidad_estratos
+```
+
+- generacion valores en los estratos
+```{r}
+genera_vector_aleatorio_en_estrato <- function(numero_estrato) {
+  numero_estrato_u_1 <- estratos[numero_estrato, 1]
+  numero_estrato_u_2 <- estratos[numero_estrato, 2]
+  estrato_u_1 <- subintervalos[numero_estrato_u_1, ]
+  estrato_u_2 <- subintervalos[numero_estrato_u_2, ]
+  c(
+    runif(1, min = estrato_u_1$min, max = estrato_u_1$max),
+    runif(1, min = estrato_u_2$min, max = estrato_u_2$max)
+  )
+}
+```
+
+2) Replicacion
+```{r}
+n_tanteo <- 50 * cantidad_estratos
+
+coste_estratificado_optimo <- bench::mark(
+  {
+    # Estimación de las varianzas de los estratos
+    n_estratos <- (n_tanteo * estratos$probabilidad) |> 
+      ceiling() |> 
+      pmax(2)
+    valores <- purrr::map2(
+      seq_len(cantidad_estratos),
+      n_estratos,
+      \(numero_estrato, n_estrato) {
+        replicate(n_estrato, {
+          u <- genera_vector_aleatorio_en_estrato(numero_estrato)
+          g(u)
+        })
+      }
+    )
+
+    # Cantidad óptima de valores en cada estrato
+    sigmas <- purrr::map_dbl(valores, sd)
+    n_estratos <- 
+      (n * estratos$probabilidad * sigmas /
+         sum(estratos$probabilidad * sigmas)) |> 
+      ceiling() |> 
+      pmax(2)
+
+    # Generación de valores en cada estrato
+    valores <- purrr::map2(
+      seq_len(cantidad_estratos),
+      n_estratos,
+      \(numero_estrato, n_estrato) {
+        replicate(n_estrato, {
+          u <- genera_vector_aleatorio_en_estrato(numero_estrato)
+          g(u)
+        })
+      }
+    )
+  },
+  iterations = 10,
+  time_unit = unidad_de_tiempo
+)$median
+
+```
+
+3) Estimacion
+```{r}
+estimacion_estratificado_optimo <- valores |> 
+  purrr::map_dbl(mean) |> 
+  weighted.mean(w = estratos$probabilidad)
+varianza_estratificado_optimo <- valores |> 
+  purrr::map_dbl(sd) |> 
+  weighted.mean(w = estratos$probabilidad) |> 
+  magrittr::raise_to_power(2) |> 
+  magrittr::divide_by(n)
+eficiencia_estratificado_optimo <-
+  1 / (varianza_estratificado_optimo *
+    coste_estratificado_optimo)
+```
+
+
+### MC por importancia
+Generacion para muestreo por importancia
+
+- buscamos una distribucion instrumental
+```{r}
+alfa_instrumental_u_1 <- 3
+beta_instrumental_u_1 <- 1
+alfa_instrumental_u_2 <- 2
+beta_instrumental_u_2 <- 1
+
+densidad_nominal <- function(u) {
+  u_1 <- u[[1]]
+  u_2 <- u[[2]]
+  dunif(u_1) * dunif(u_2)
+}
+
+densidad_instrumental <- function(u) {
+  u_1 <- u[[1]]
+  u_2 <- u[[2]]
+  f_1 <- densidad_nominal(u)
+  f_2 <-
+    dbeta(u_1,
+          shape1 = alfa_instrumental_u_1,
+          shape2 = beta_instrumental_u_1) *
+    dbeta(u_2,
+          shape1 = alfa_instrumental_u_2,
+          shape2 = beta_instrumental_u_2)
+  0.7 * f_1 + 0.3 * f_2
+}
+
+
+
+library(plotly)
+
+malla <- data.frame(
+  u_1 = seq_len(100) / 100,
+  u_2 = seq_len(100) / 100
+)
+
+malla |> 
+  plot_ly(x = ~u_1, y = ~u_2) |> 
+  add_surface(z = outer(
+    malla$u_1, malla$u_2,
+    Vectorize(function(u_1, u_2) {
+      u <- c(u_1, u_2)
+      g(u) * densidad_nominal(u)
+    })
+  )) |> 
+  add_surface(z = outer(
+    malla$u_1, malla$u_2,
+    Vectorize(function(u_1, u_2) {
+      u <- c(u_1, u_2)
+      densidad_instrumental(u)
+    })
+  ))
+```
+
+- revision grafica
+```{r}
+malla |> 
+plot_ly(x = ~u_1, y = ~u_2) |> 
+  add_surface(z = outer(
+    malla$u_1, malla$u_2,
+    Vectorize(function(u_1, u_2) {
+      u <- c(u_1, u_2)
+      g(u)
+    })
+  )) |> 
+  add_surface(z = outer(
+    malla$u_1, malla$u_2,
+    Vectorize(function(u_1, u_2) {
+      u <- c(u_1, u_2)
+      densidad_nominal(u) / densidad_instrumental(u)
+    })
+  ))
+```
+
+- generacion por importancia
+```{r generacion-importancia}
+genera_vector_aleatorio <- function() {
+  if (runif(1) < 0.7) {
+    runif(2)
+  } else {
+    c(
+      rbeta(1,
+            shape1 = alfa_instrumental_u_1,
+            shape2 = beta_instrumental_u_1),
+      rbeta(1,
+            shape1 = alfa_instrumental_u_2,
+            shape2 = beta_instrumental_u_2)
+    )
+  }
+}
+
+razon_de_verosimilitud <- function(u) {
+  densidad_nominal(u) / densidad_instrumental(u)
+}
+
+g_por_verosimilitud <- function(u) {
+  g(u) * razon_de_verosimilitud(u)
+}
+```
+
+2) Replicacion
+```{r}
+coste_importancia_3 <- bench::mark(
+  {
+    valores <- replicate(n, {
+      u <- genera_vector_aleatorio()
+      g_por_verosimilitud(u)
+    })
+  },
+  iterations = 10,
+  time_unit = unidad_de_tiempo
+)$median
+```
+
+3) Estimacion
+```{r}
+estimacion_importancia_3 <- mean(valores)
+varianza_importancia_3 <- var(valores) / n
+eficiencia_importancia_3 <-
+  1 / (varianza_importancia_3 * coste_importancia_3)
+```
+
+### Resultados
+```{r}
+knitr::kable(
+  data.frame(
+    `Método` = c(
+      "Directo",
+      "Estratificado óptimo",
+      "Importancia 1"
+    ),
+    `Estimación` = c(
+      estimacion_directo,
+      estimacion_estratificado_optimo,
+      estimacion_importancia_3
+    ),
+    Varianza = c(
+      varianza_directo,
+      varianza_estratificado_optimo,
+      varianza_importancia_3
+    ),
+    Coste = c(
+      coste_directo,
+      coste_estratificado_optimo,
+      coste_importancia_3
+    ),
+    Eficiencia = c(
+      eficiencia_directo,
+      eficiencia_estratificado_optimo,
+      eficiencia_importancia_3
+    )
+  ),
+  digits = 10
+)
+```
+
+## Ejercicio 8
+```{r}
+rm(list = ls())
+set.seed(050700)
+unidad_de_tiempo <- "ms"
+```
+
+```{r}
+n <- 1e4
+
+g <- function(u) {
+  u_1 <- u[[1]] 
+  u_2 <- u[[2]]
+  4*(4*u_1 - 2)^2 * cos((4*u_1 - 2) * u_2)
+}
+```
+
+
+### MC directo
+
+1) Generacion
+```{r}
+genera_vector_aleatorio <- function() {
+  runif(2)
+}
+```
+
+2) Replicacion
+```{r}
+coste_directo <- bench::mark(
+  {
+    valores <- replicate(n, {
+      u <- genera_vector_aleatorio()
+      g(u)
+    })
+  },
+  iterations = 10,
+  time_unit = unidad_de_tiempo
+)$median
+```
+
+3) Estimacion
+```{r}
+estimacion_directo <- mean(valores)
+varianza_directo <- var(valores) / n
+eficiencia_directo <- 1 / (varianza_directo * coste_directo)
+```
+
+### MC muestreo estratificado con asignacion optima
+1) Generacion
+- generacion de los estratos
+```{r}
+genera_subintervalos <- function(numero_subintervalos) {
+  extremos_derechos <-
+    seq_len(numero_subintervalos) / numero_subintervalos
+  extremos_izquierdos <-
+    c(0, extremos_derechos[-numero_subintervalos])
+  data.frame(
+    min = extremos_izquierdos,
+    max = extremos_derechos
+  )
+}
+
+# Como en cada dimensión se va a considerar el mismo número de
+# subintervalos, basta guardar la información una única vez
+numero_subintervalos <- 5
+subintervalos <- genera_subintervalos(numero_subintervalos)
+
+# Los estratos vienen dados por todas las combinaciones posibles
+estratos <- expand.grid(
+  seq_len(numero_subintervalos),
+  seq_len(numero_subintervalos)
+)
+cantidad_estratos <- nrow(estratos)
+estratos$probabilidad <- 1 / cantidad_estratos
+```
+
+- generacion valores en los estratos
+```{r}
+genera_vector_aleatorio_en_estrato <- function(numero_estrato) {
+  numero_estrato_u_1 <- estratos[numero_estrato, 1]
+  numero_estrato_u_2 <- estratos[numero_estrato, 2]
+  estrato_u_1 <- subintervalos[numero_estrato_u_1, ]
+  estrato_u_2 <- subintervalos[numero_estrato_u_2, ]
+  c(
+    runif(1, min = estrato_u_1$min, max = estrato_u_1$max),
+    runif(1, min = estrato_u_2$min, max = estrato_u_2$max)
+  )
+}
+```
+
+2) Replicacion
+```{r}
+n_tanteo <- 50 * cantidad_estratos
+
+coste_estratificado_optimo <- bench::mark(
+  {
+    # Estimación de las varianzas de los estratos
+    n_estratos <- (n_tanteo * estratos$probabilidad) |> 
+      ceiling() |> 
+      pmax(2)
+    valores <- purrr::map2(
+      seq_len(cantidad_estratos),
+      n_estratos,
+      \(numero_estrato, n_estrato) {
+        replicate(n_estrato, {
+          u <- genera_vector_aleatorio_en_estrato(numero_estrato)
+          g(u)
+        })
+      }
+    )
+
+    # Cantidad óptima de valores en cada estrato
+    sigmas <- purrr::map_dbl(valores, sd)
+    n_estratos <- 
+      (n * estratos$probabilidad * sigmas /
+         sum(estratos$probabilidad * sigmas)) |> 
+      ceiling() |> 
+      pmax(2)
+
+    # Generación de valores en cada estrato
+    valores <- purrr::map2(
+      seq_len(cantidad_estratos),
+      n_estratos,
+      \(numero_estrato, n_estrato) {
+        replicate(n_estrato, {
+          u <- genera_vector_aleatorio_en_estrato(numero_estrato)
+          g(u)
+        })
+      }
+    )
+  },
+  iterations = 10,
+  time_unit = unidad_de_tiempo
+)$median
+
+```
+
+3) Estimacion
+```{r}
+estimacion_estratificado_optimo <- valores |> 
+  purrr::map_dbl(mean) |> 
+  weighted.mean(w = estratos$probabilidad)
+varianza_estratificado_optimo <- valores |> 
+  purrr::map_dbl(sd) |> 
+  weighted.mean(w = estratos$probabilidad) |> 
+  magrittr::raise_to_power(2) |> 
+  magrittr::divide_by(n)
+eficiencia_estratificado_optimo <-
+  1 / (varianza_estratificado_optimo *
+    coste_estratificado_optimo)
+```
+
+
+### MC por importancia
+Generacion para muestreo por importancia
+
+- buscamos una distribucion instrumental
+```{r}
+alfa_instrumental_u_1 <- 3
+beta_instrumental_u_1 <- 1
+alfa_instrumental_u_2 <- 2
+beta_instrumental_u_2 <- 1
+
+densidad_nominal <- function(u) {
+  u_1 <- u[[1]]
+  u_2 <- u[[2]]
+  dunif(u_1) * dunif(u_2)
+}
+
+densidad_instrumental <- function(u) {
+  u_1 <- u[[1]]
+  u_2 <- u[[2]]
+  f_1 <- densidad_nominal(u)
+  f_2 <-
+    dbeta(u_1,
+          shape1 = alfa_instrumental_u_1,
+          shape2 = beta_instrumental_u_1) *
+    dbeta(u_2,
+          shape1 = alfa_instrumental_u_2,
+          shape2 = beta_instrumental_u_2)
+  0.7 * f_1 + 0.3 * f_2
+}
+
+
+
+library(plotly)
+
+malla <- data.frame(
+  u_1 = seq_len(100) / 100,
+  u_2 = seq_len(100) / 100
+)
+
+malla |> 
+  plot_ly(x = ~u_1, y = ~u_2) |> 
+  add_surface(z = outer(
+    malla$u_1, malla$u_2,
+    Vectorize(function(u_1, u_2) {
+      u <- c(u_1, u_2)
+      g(u) * densidad_nominal(u)
+    })
+  )) |> 
+  add_surface(z = outer(
+    malla$u_1, malla$u_2,
+    Vectorize(function(u_1, u_2) {
+      u <- c(u_1, u_2)
+      densidad_instrumental(u)
+    })
+  ))
+```
+
+- revision grafica
+```{r}
+malla |> 
+plot_ly(x = ~u_1, y = ~u_2) |> 
+  add_surface(z = outer(
+    malla$u_1, malla$u_2,
+    Vectorize(function(u_1, u_2) {
+      u <- c(u_1, u_2)
+      g(u)
+    })
+  )) |> 
+  add_surface(z = outer(
+    malla$u_1, malla$u_2,
+    Vectorize(function(u_1, u_2) {
+      u <- c(u_1, u_2)
+      densidad_nominal(u) / densidad_instrumental(u)
+    })
+  ))
+```
+
+- generacion por importancia
+```{r generacion-importancia}
+genera_vector_aleatorio <- function() {
+  if (runif(1) < 0.7) {
+    runif(2)
+  } else {
+    c(
+      rbeta(1,
+            shape1 = alfa_instrumental_u_1,
+            shape2 = beta_instrumental_u_1),
+      rbeta(1,
+            shape1 = alfa_instrumental_u_2,
+            shape2 = beta_instrumental_u_2)
+    )
+  }
+}
+
+razon_de_verosimilitud <- function(u) {
+  densidad_nominal(u) / densidad_instrumental(u)
+}
+
+g_por_verosimilitud <- function(u) {
+  g(u) * razon_de_verosimilitud(u)
+}
+```
+
+2) Replicacion
+```{r}
+coste_importancia_3 <- bench::mark(
+  {
+    valores <- replicate(n, {
+      u <- genera_vector_aleatorio()
+      g_por_verosimilitud(u)
+    })
+  },
+  iterations = 10,
+  time_unit = unidad_de_tiempo
+)$median
+```
+
+3) Estiamcion
+```{r}
+estimacion_importancia_3 <- mean(valores)
+varianza_importancia_3 <- var(valores) / n
+eficiencia_importancia_3 <-
+  1 / (varianza_importancia_3 * coste_importancia_3)
+```
+
+### Resultados
+```{r}
+knitr::kable(
+  data.frame(
+    `Método` = c(
+      "Directo",
+      "Estratificado óptimo",
+      "Importancia 3"
+    ),
+    `Estimación` = c(
+      estimacion_directo,
+      estimacion_estratificado_optimo,
+      estimacion_importancia_3
+    ),
+    Varianza = c(
+      varianza_directo,
+      varianza_estratificado_optimo,
+      varianza_importancia_3
+    ),
+    Coste = c(
+      coste_directo,
+      coste_estratificado_optimo,
+      coste_importancia_3
+    ),
+    Eficiencia = c(
+      eficiencia_directo,
+      eficiencia_estratificado_optimo,
+      eficiencia_importancia_3
+    )
+  ),
+  digits = 10
+)
+```
+
+## Ejercicio 9
+
+```{r}
+rm(list = ls())
+set.seed(050700)
+unidad_de_tiempo <- "ms"
+```
+
+```{r}
+n <- 1e4
+
+g <- function(u) {
+  u_1 <- u[[1]] 
+  u_2 <- u[[2]]
+  18/(u_1^3*u_2^2)*exp((1-9/u_1^2)*1/u_2^2)
+}
+```
+
+
+### MC directo
+
+1) Generacion
+```{r}
+genera_vector_aleatorio <- function() {
+  runif(2)
+}
+```
+
+2) Replicacion
+```{r}
+coste_directo <- bench::mark(
+  {
+    valores <- replicate(n, {
+      u <- genera_vector_aleatorio()
+      g(u)
+    })
+  },
+  iterations = 10,
+  time_unit = unidad_de_tiempo
+)$median
+```
+
+3) Estimacion
+```{r}
+estimacion_directo <- mean(valores)
+varianza_directo <- var(valores) / n
+eficiencia_directo <- 1 / (varianza_directo * coste_directo)
+```
+
+### MC muestreo estratificado con asignacion optima
+1) Generacion
+- generacion de los estratos
+```{r}
+genera_subintervalos <- function(numero_subintervalos) {
+  extremos_derechos <-
+    seq_len(numero_subintervalos) / numero_subintervalos
+  extremos_izquierdos <-
+    c(0, extremos_derechos[-numero_subintervalos])
+  data.frame(
+    min = extremos_izquierdos,
+    max = extremos_derechos
+  )
+}
+
+# Como en cada dimensión se va a considerar el mismo número de
+# subintervalos, basta guardar la información una única vez
+numero_subintervalos <- 5
+subintervalos <- genera_subintervalos(numero_subintervalos)
+
+# Los estratos vienen dados por todas las combinaciones posibles
+estratos <- expand.grid(
+  seq_len(numero_subintervalos),
+  seq_len(numero_subintervalos)
+)
+cantidad_estratos <- nrow(estratos)
+estratos$probabilidad <- 1 / cantidad_estratos
+```
+
+- generacion valores en los estratos
+```{r}
+genera_vector_aleatorio_en_estrato <- function(numero_estrato) {
+  numero_estrato_u_1 <- estratos[numero_estrato, 1]
+  numero_estrato_u_2 <- estratos[numero_estrato, 2]
+  estrato_u_1 <- subintervalos[numero_estrato_u_1, ]
+  estrato_u_2 <- subintervalos[numero_estrato_u_2, ]
+  c(
+    runif(1, min = estrato_u_1$min, max = estrato_u_1$max),
+    runif(1, min = estrato_u_2$min, max = estrato_u_2$max)
+  )
+}
+```
+
+2) Replicacion
+```{r}
+n_tanteo <- 50 * cantidad_estratos
+
+coste_estratificado_optimo <- bench::mark(
+  {
+    # Estimación de las varianzas de los estratos
+    n_estratos <- (n_tanteo * estratos$probabilidad) |> 
+      ceiling() |> 
+      pmax(2)
+    valores <- purrr::map2(
+      seq_len(cantidad_estratos),
+      n_estratos,
+      \(numero_estrato, n_estrato) {
+        replicate(n_estrato, {
+          u <- genera_vector_aleatorio_en_estrato(numero_estrato)
+          g(u)
+        })
+      }
+    )
+
+    # Cantidad óptima de valores en cada estrato
+    sigmas <- purrr::map_dbl(valores, sd)
+    n_estratos <- 
+      (n * estratos$probabilidad * sigmas /
+         sum(estratos$probabilidad * sigmas)) |> 
+      ceiling() |> 
+      pmax(2)
+
+    # Generación de valores en cada estrato
+    valores <- purrr::map2(
+      seq_len(cantidad_estratos),
+      n_estratos,
+      \(numero_estrato, n_estrato) {
+        replicate(n_estrato, {
+          u <- genera_vector_aleatorio_en_estrato(numero_estrato)
+          g(u)
+        })
+      }
+    )
+  },
+  iterations = 10,
+  time_unit = unidad_de_tiempo
+)$median
+
+```
+
+3) Estimacion
+```{r}
+estimacion_estratificado_optimo <- valores |> 
+  purrr::map_dbl(mean) |> 
+  weighted.mean(w = estratos$probabilidad)
+varianza_estratificado_optimo <- valores |> 
+  purrr::map_dbl(sd) |> 
+  weighted.mean(w = estratos$probabilidad) |> 
+  magrittr::raise_to_power(2) |> 
+  magrittr::divide_by(n)
+eficiencia_estratificado_optimo <-
+  1 / (varianza_estratificado_optimo *
+    coste_estratificado_optimo)
+```
+
+
+### MC por importancia
+Generacion para muestreo por importancia
+
+- buscamos una distribucion instrumental
+```{r}
+alfa_instrumental_u_1 <- 3
+beta_instrumental_u_1 <- 1
+alfa_instrumental_u_2 <- 2
+beta_instrumental_u_2 <- 1
+
+densidad_nominal <- function(u) {
+  u_1 <- u[[1]]
+  u_2 <- u[[2]]
+  dunif(u_1) * dunif(u_2)
+}
+
+densidad_instrumental <- function(u) {
+  u_1 <- u[[1]]
+  u_2 <- u[[2]]
+  f_1 <- densidad_nominal(u)
+  f_2 <-
+    dbeta(u_1,
+          shape1 = alfa_instrumental_u_1,
+          shape2 = beta_instrumental_u_1) *
+    dbeta(u_2,
+          shape1 = alfa_instrumental_u_2,
+          shape2 = beta_instrumental_u_2)
+  0.7 * f_1 + 0.3 * f_2
+}
+
+
+
+library(plotly)
+
+malla <- data.frame(
+  u_1 = seq_len(100) / 100,
+  u_2 = seq_len(100) / 100
+)
+
+malla |> 
+  plot_ly(x = ~u_1, y = ~u_2) |> 
+  add_surface(z = outer(
+    malla$u_1, malla$u_2,
+    Vectorize(function(u_1, u_2) {
+      u <- c(u_1, u_2)
+      g(u) * densidad_nominal(u)
+    })
+  )) |> 
+  add_surface(z = outer(
+    malla$u_1, malla$u_2,
+    Vectorize(function(u_1, u_2) {
+      u <- c(u_1, u_2)
+      densidad_instrumental(u)
+    })
+  ))
+```
+
+- revision grafica
+```{r}
+malla |> 
+plot_ly(x = ~u_1, y = ~u_2) |> 
+  add_surface(z = outer(
+    malla$u_1, malla$u_2,
+    Vectorize(function(u_1, u_2) {
+      u <- c(u_1, u_2)
+      g(u)
+    })
+  )) |> 
+  add_surface(z = outer(
+    malla$u_1, malla$u_2,
+    Vectorize(function(u_1, u_2) {
+      u <- c(u_1, u_2)
+      densidad_nominal(u) / densidad_instrumental(u)
+    })
+  ))
+```
+
+- generacion por importancia
+```{r generacion-importancia}
+genera_vector_aleatorio <- function() {
+  if (runif(1) < 0.7) {
+    runif(2)
+  } else {
+    c(
+      rbeta(1,
+            shape1 = alfa_instrumental_u_1,
+            shape2 = beta_instrumental_u_1),
+      rbeta(1,
+            shape1 = alfa_instrumental_u_2,
+            shape2 = beta_instrumental_u_2)
+    )
+  }
+}
+
+razon_de_verosimilitud <- function(u) {
+  densidad_nominal(u) / densidad_instrumental(u)
+}
+
+g_por_verosimilitud <- function(u) {
+  g(u) * razon_de_verosimilitud(u)
+}
+```
+
+2) Replicacion
+```{r}
+coste_importancia_3 <- bench::mark(
+  {
+    valores <- replicate(n, {
+      u <- genera_vector_aleatorio()
+      g_por_verosimilitud(u)
+    })
+  },
+  iterations = 10,
+  time_unit = unidad_de_tiempo
+)$median
+```
+
+3) Estiamcion
+```{r}
+estimacion_importancia_3 <- mean(valores)
+varianza_importancia_3 <- var(valores) / n
+eficiencia_importancia_3 <-
+  1 / (varianza_importancia_3 * coste_importancia_3)
+```
+
+### Resultados
+```{r}
+knitr::kable(
+  data.frame(
+    `Método` = c(
+      "Directo",
+      "Estratificado óptimo",
+      "Importancia 3"
+    ),
+    `Estimación` = c(
+      estimacion_directo,
+      estimacion_estratificado_optimo,
+      estimacion_importancia_3
+    ),
+    Varianza = c(
+      varianza_directo,
+      varianza_estratificado_optimo,
+      varianza_importancia_3
+    ),
+    Coste = c(
+      coste_directo,
+      coste_estratificado_optimo,
+      coste_importancia_3
+    ),
+    Eficiencia = c(
+      eficiencia_directo,
+      eficiencia_estratificado_optimo,
+      eficiencia_importancia_3
+    )
+  ),
+  digits = 10
+)
+```
+
+## Ejercicio 10
+
+```{r}
+rm(list = ls())
+set.seed(050700)
+unidad_de_tiempo <- "ms"
+```
+
+```{r}
+n <- 1e4
+
+g <- function(u) {
+  u_1 <- u[[1]] 
+  u_2 <- u[[2]]
+  u_3 <- u[[3]]
+  u_4 <- u[[4]]
+  u_5 <- u[[5]]
+  2*((u_1*(2*u_2)^2 + u_1*(u_3+1)*(u_5+2)+2*u_2*u_4^2))
+}
+```
+
+
+### MC directo
+
+1) Generacion
+```{r}
+genera_vector_aleatorio <- function() {
+  runif(5)
+}
+```
+
+2) Replicacion
+```{r}
+coste_directo <- bench::mark(
+  {
+    valores <- replicate(n, {
+      u <- genera_vector_aleatorio()
+      g(u)
+    })
+  },
+  iterations = 10,
+  time_unit = unidad_de_tiempo
+)$median
+```
+
+3) Estimacion
+```{r}
+estimacion_directo <- mean(valores)
+varianza_directo <- var(valores) / n
+eficiencia_directo <- 1 / (varianza_directo * coste_directo)
+```
+
+### MC muestreo estratificado con asignacion optima
+1) Generacion
+- generacion de los estratos
+```{r}
+genera_subintervalos <- function(numero_subintervalos) {
+  extremos_derechos <-
+    seq_len(numero_subintervalos) / numero_subintervalos
+  extremos_izquierdos <-
+    c(0, extremos_derechos[-numero_subintervalos])
+  data.frame(
+    min = extremos_izquierdos,
+    max = extremos_derechos
+  )
+}
+
+# Como en cada dimensión se va a considerar el mismo número de
+# subintervalos, basta guardar la información una única vez
+numero_subintervalos <- 5
+subintervalos <- genera_subintervalos(numero_subintervalos)
+
+# Los estratos vienen dados por todas las combinaciones posibles
+estratos <- expand.grid(
+  seq_len(numero_subintervalos),
+  seq_len(numero_subintervalos),
+  seq_len(numero_subintervalos),
+  seq_len(numero_subintervalos),
+  seq_len(numero_subintervalos)
+)
+cantidad_estratos <- nrow(estratos)
+estratos$probabilidad <- 1 / cantidad_estratos
+```
+
+- generacion valores en los estratos
+```{r}
+genera_vector_aleatorio_en_estrato <- function(numero_estrato) {
+  numero_estrato_u_1 <- estratos[numero_estrato, 1]
+  numero_estrato_u_2 <- estratos[numero_estrato, 2]
+  numero_estrato_u_3 <- estratos[numero_estrato, 3]
+  numero_estrato_u_4 <- estratos[numero_estrato, 4]
+  numero_estrato_u_5 <- estratos[numero_estrato, 5]
+  
+  
+  estrato_u_1 <- subintervalos[numero_estrato_u_1, ]
+  estrato_u_2 <- subintervalos[numero_estrato_u_2, ]
+  estrato_u_3 <- subintervalos[numero_estrato_u_3, ]
+  estrato_u_4 <- subintervalos[numero_estrato_u_4, ]
+  estrato_u_5 <- subintervalos[numero_estrato_u_5, ]
+  
+  
+  c(
+    runif(1, min = estrato_u_1$min, max = estrato_u_1$max),
+    runif(1, min = estrato_u_2$min, max = estrato_u_2$max),
+    runif(1, min = estrato_u_3$min, max = estrato_u_3$max),
+    runif(1, min = estrato_u_4$min, max = estrato_u_4$max),
+    runif(1, min = estrato_u_5$min, max = estrato_u_5$max)
+  )
+}
+```
+
+2) Replicacion
+```{r}
+n_tanteo <- 50 * cantidad_estratos
+
+coste_estratificado_optimo <- bench::mark(
+  {
+    # Estimación de las varianzas de los estratos
+    n_estratos <- (n_tanteo * estratos$probabilidad) |> 
+      ceiling() |> 
+      pmax(2)
+    valores <- purrr::map2(
+      seq_len(cantidad_estratos),
+      n_estratos,
+      \(numero_estrato, n_estrato) {
+        replicate(n_estrato, {
+          u <- genera_vector_aleatorio_en_estrato(numero_estrato)
+          g(u)
+        })
+      }
+    )
+
+    # Cantidad óptima de valores en cada estrato
+    sigmas <- purrr::map_dbl(valores, sd)
+    n_estratos <- 
+      (n * estratos$probabilidad * sigmas /
+         sum(estratos$probabilidad * sigmas)) |> 
+      ceiling() |> 
+      pmax(2)
+
+    # Generación de valores en cada estrato
+    valores <- purrr::map2(
+      seq_len(cantidad_estratos),
+      n_estratos,
+      \(numero_estrato, n_estrato) {
+        replicate(n_estrato, {
+          u <- genera_vector_aleatorio_en_estrato(numero_estrato)
+          g(u)
+        })
+      }
+    )
+  },
+  iterations = 10,
+  time_unit = unidad_de_tiempo
+)$median
+
+```
+
+3) Estimacion
+```{r}
+estimacion_estratificado_optimo <- valores |> 
+  purrr::map_dbl(mean) |> 
+  weighted.mean(w = estratos$probabilidad)
+varianza_estratificado_optimo <- valores |> 
+  purrr::map_dbl(sd) |> 
+  weighted.mean(w = estratos$probabilidad) |> 
+  magrittr::raise_to_power(2) |> 
+  magrittr::divide_by(n)
+eficiencia_estratificado_optimo <-
+  1 / (varianza_estratificado_optimo *
+    coste_estratificado_optimo)
+```
+
+
+### Resultados
+```{r}
+knitr::kable(
+  data.frame(
+    `Método` = c(
+      "Directo",
+      "Estratificado óptimo"
+    ),
+    `Estimación` = c(
+      estimacion_directo,
+      estimacion_estratificado_optimo
+    ),
+    Varianza = c(
+      varianza_directo,
+      varianza_estratificado_optimo
+    ),
+    Coste = c(
+      coste_directo,
+      coste_estratificado_optimo
+    ),
+    Eficiencia = c(
+      eficiencia_directo,
+      eficiencia_estratificado_optimo
+    )
+  ),
+  digits = 10
+)
+```
+
+
+## Ejercicio 11
+```{r}
+rm(list = ls())
+set.seed(050700)
+unidad_de_tiempo <- "ms"
+```
+
+```{r}
+calcula_minima_longitud <- function(x){
+  x1 <- x[[1]]
+  x2 <- x[[2]]
+  x3 <- x[[3]]
+  x4 <- x[[4]]
+  x5 <- x[[5]]
+  
+  min(x1+x4, 
+      x1+x3+x5, 
+      x2+x3+x4,
+      x2+x5)
+}
+```
+
+1) Generacion
+```{r}
+library(purrr)
+
+genera_longitudes <- function(){
+  a <- c(1, 2, 3 , 1, 2)
+  map_dbl(a, \(m) runif(1, min = 0, max = m))
+  
+  #otra manera
+  # runif(5, min = 0, max = c(1, 2, 3 , 1, 2))
+}
+```
+
+2) Replicacion
+```{r}
+n <- 1e6
+
+minimas_longitudes <- replicate(n,{
+  x <- genera_longitudes()
+  calcula_minima_longitud(x)
+})
+
+```
+
+3) Estimacion
+```{r}
+mean(minimas_longitudes)
+```
+
+
+## Ejercicio 12
+```{r}
+rm(list = ls())
+set.seed(050700)
+unidad_de_tiempo <- "ms"
+```
+
+```{r}
+costos_semanal <- function(q){
+  30 + 5*q^(3/4) + 18*q
+}
+```
+
+Beneficio semanal usando q = 70
+```{r}
+q <- 70
+beneficio_semanal <- function(pollos_vendidos){
+  25*pollos_vendidos - costos_semanal(q) - (50 + 3*sqrt(q - pollos_vendidos))
+}
+```
+
+
+### 1) Generacion y modelacion
+Pollos vendidos 
+```{r}
+genera_vendidas_SESGADA <- function(){
+  pollos_vendidos <- rpois(n = 1, lambda = 60)
+  
+  if(pollos_vendidos > q){
+    q
+  }else{
+    pollos_vendidos
+  }
+}
+```
+
+Cuidado: estamos modificando la distribucion generada, truncando la distribucion de Poisson 
+
+-> metodo de la transformada inversa
+```{r}
+genera_vendidas <- function(){
+  M <- ppois(q, lambda = 60)
+  u <- runif(1000, min = 0, max = M)
+  
+  qpois(u, lambda = 60)
+}
+```
+-> paquete extraDistr
+```{r}
+library(extraDistr)
+
+genera_vendidas <- function(){
+  rtpois(1, lambda = 60, a = 0, b = q)
+}
+```
+
+
+### 2) Replicacion
+```{r}
+n <- 1e4
+
+beneficios_semanales <- replicate(n, {
+  vendidas <- genera_vendidas()
+  beneficio_semanal(vendidas)
+})
+```
+
+### 3) Estimacion
+```{r}
+mean(beneficios_semanales)
+```
+
+## Ejercicio 13 (*)
+```{r}
+rm(list = ls())
+```
+
+### 1) Modelacion y generacion
+Generacion germenes
+```{r}
+longitud_ventana <- 10
+lambda <- 1
+
+generacion_numero_germenes <- function(){
+  rpois(1, lambda = lambda*longitud_ventana^2)
+}
+
+generacion_germenes <- function(N_germenes){
+  replicate(N_germenes, {
+    c(runif(n = 1, min = 0, max = longitud_ventana),
+      runif(n = 1, min = 0, max = longitud_ventana))
+  },
+  simplify = "matrix")
+}
+```
+
+Computacion de la superficie ocupada por los germenes
+```{r}
+dist_euclidea <- function(a, b){
+  sqrt((a[1] - b[1])^2 + (a[2] - b[2])^2)
+}
+
+library(purrr)
+calcula_dist_min_desde_germen_mas_cercana <- function(indice_germen, germenes){
+  distancias_desde_otro_puntos <- apply(germenes, 
+                                        MARGIN = 2,
+                                        function(otro_germ){
+                                          dist_euclidea(germenes[, indice_germen], otro_germ)
+                                          }
+                                        )
+  min(distancias_desde_otro_puntos[-indice_germen])
+}
+
+espacio_ocupado <- function(germenes){
+  total_espacio_ocupado <- 0
+  for(i in 1:dim(germenes)[2]){
+    total_espacio_ocupado <- 
+      total_espacio_ocupado + pi*(calcula_dist_min_desde_germen_mas_cercana(i, germenes)/2)^2
+  }
+  total_espacio_ocupado
+}
+```
+
+### 2) Replicacion
+```{r}
+n <- 1e3
+set.seed(050700)
+
+valores_espacio_ocupado <- replicate(n, {
+  N_germenes <- generacion_numero_germenes()
+  germenes <- generacion_germenes(N_germenes)
+  espacio_ocupado(germenes)
+})
+```
+
+### 3) Estimacion
+```{r}
+mean(valores_espacio_ocupado)
+
+var(valores_espacio_ocupado)/n
+
+```
+
+### Reducion varianza por muestreo estratificado
+Visualizacion estratificacion
+```{r}
+library(ggplot2)
+
+simulaciones <- replicate(1e3, {
+  N_germenes <- generacion_numero_germenes()
+  germenes <- generacion_germenes(N_germenes)
+  c(N = N_germenes, E = espacio_ocupado(germenes))
+})
+
+ggplot(
+  as.data.frame(t(simulaciones)),
+  aes(N, E)
+) +
+  geom_hline(yintercept = 5, color = "red") +
+  geom_jitter(width = 0.3, height = 0) +
+  scale_x_continuous(breaks = scales::breaks_width(1)) +
+  scale_y_continuous(breaks = scales::breaks_width(5))
+```
+
+Construcion estratificacion
+```{r}
+N_prima <- 85
+p_menor_N_prima <- ppois(N_prima-1, lambda = lambda*longitud_ventana^2)
+
+N_despues <- 115
+p_mayor_N_despues <- 1 - ppois(N_despues, lambda = lambda*longitud_ventana^2)
+
+
+probabilidades_estratos <- c(
+  p_menor_N_prima,
+  dpois(seq(N_prima, N_despues), lambda = lambda*longitud_ventana^2),
+  p_mayor_N_despues
+)
+
+# Calculamos la cantidad de valores para los estratos N > 0
+probabilidad_N_mayor_que_0 <- 1 - ppois(0, lambda = lambda*longitud_ventana^2)
+probabilidades_condicionadas_estratos <-
+  probabilidades_estratos[-1] / probabilidad_N_mayor_que_0
+
+n_estratos <- (n * probabilidades_estratos) |>
+  ceiling() |>
+  pmax(2)
+```
+
+Generacion en los estratos
+```{r}
+generacion_numero_germenes_en_estratos <- function(numero_estrato) {
+  if (numero_estrato < N_prima) {
+    u <- runif(1, min = 0, max = p_N_prima)
+    qpois(u, lambda = lambda*longitud_ventana^2)
+  } else if (numero_estrato > N_despues) {
+    u <- runif(1, min = p_N_despues, max = 1)
+    qpois(u, lambda = lambda*longitud_ventana^2)
+  } else{
+    numero_estrato
+  }
+}
+
+generacion_germenes <- function(N_germenes){
+  replicate(N_germenes, {
+    c(runif(n = 1, min = 0, max = longitud_ventana),
+      runif(n = 1, min = 0, max = longitud_ventana))
+  },
+  simplify = "matrix")
+}
+```
+
+Replicacion
+```{r}
+n <- 1e3
+set.seed(050700)
+
+valores <- purrr::map2(
+      seq(N_prima -1, N_despues + 1),
+      n_estratos,
+      \(numero_estrato, n_estrato) {
+        replicate(n_estrato, {
+          N_germenes <- generacion_numero_germenes()
+          germenes <- generacion_germenes(N_germenes)
+          espacio_ocupado(germenes)
+        })
+      }
+    )
+```
+
+Estimacion
+```{r}
+estimacion_estratificado <- valores |>
+  purrr::map_dbl(mean) |>
+  weighted.mean(w = probabilidades_estratos)
+
+varianza_estratificado <- valores |> 
+  purrr::map_dbl(sd) |> 
+  weighted.mean(w = probabilidades_estratos) |> 
+  magrittr::raise_to_power(2) |> 
+  magrittr::divide_by(n)
+
+estimacion_estratificado
+varianza_estratificado
+```
+
+
+## Ejercicio 14: proceso estocastico
+```{r}
+rm(list = ls())
+unidad_de_tiempo <- "s"
+```
+
+### 1) Generacion y modelacion
+
+Generacion valores de energia
+```{r}
+genera_evolucion_valor_energia <- function(parametros){
+  energia_anadita_cada_paso <- numeric()
+  valores_energia <- numeric()
+  
+  valor_energia_inicial <- -1
+  valor_energia_actual <- valor_energia_inicial
+  valores_energia[1] <- valor_energia_inicial
+
+  indice_val <- 1
+  
+  repeat{
+    energia_anadita_cada_paso[indice_val] <-  rnorm(1, mean = 0, sd = 1)
+    valor_energia_actual <- valor_energia_actual + energia_anadita_cada_paso[indice_val]
+    if (indice_val > 1e2 || valor_energia_actual > 0) {
+      break
+    }
+    indice_val <- indice_val + 1
+    
+    valores_energia[[indice_val]] <- valor_energia_actual
+  }
+  
+  rbind(energia_anadita = energia_anadita_cada_paso[1:(indice_val)], 
+        valores_energia)
+}
+```
+
+Calculo tiempo en orbita y cuenta cuantas veces es mayor que 10^3
+```{r}
+calculo_tiempo <- function(valores_energia){
+  tiempo_total <- 0
+  for (valor in valores_energia){
+    tiempo_total <- tiempo_total + (-valor)^(-3/2)
+  }
+  tiempo_total
+}
+```
+
+### 2) Replicacion
+```{r}
+n <- 1e4
+set.seed(050700)
+
+parametros <- list()
+parametros$mean <- 0
+parametros$sd <- 1
+
+tiempos_en_orbita_mayor_que_1e3 <- replicate(n, {
+  evolucion_val_energia <- genera_evolucion_valor_energia(parametros)
+  calculo_tiempo(evolucion_val_energia[2,]) > 1e3 #numero valores mayor que 1e3
+})
+```
+
+### 3) Estimacion de probabilidad
+```{r}
+n_success <- sum(tiempos_en_orbita_mayor_que_1e3)
+
+probabilidad_cobertura <- 0.95
+alfa <- 1 - probabilidad_cobertura
+percentil <- qnorm(1 - alfa / 2)
+```
+
+- Montecarlo
+```{r}
+estimacion_MC <- mean(tiempos_en_orbita_mayor_que_1e3)
+estimacion_MC
+# or
+estimacion_MC <- n_success / n
+estimacion_MC
+
+# intervalo
+error_estandar_MC <- sqrt(var(tiempos_en_orbita_mayor_que_1e3) / n)
+intervalo_Montecarlo <-
+  estimacion_MC + c(-1, 1) * error_estandar_MC * percentil
+
+intervalo_Montecarlo
+```
+
+- Wald
+```{r}
+estimacion_Wald <- n_success / n
+error_estandar_Wald <- sqrt(estimacion_Wald * (1 - estimacion_Wald) / n)
+intervalo_Wald <-
+  estimacion_Wald + c(-1, 1) * error_estandar_Wald * percentil
+
+estimacion_Wald
+intervalo_Wald
+```
+
+- Agresti-Coull
+```{r}
+n_0 <- n_1 <- percentil^2 / 2
+n_Agresti_Coull <- (n + n_0 + n_1)
+estimacion_Agresti_Coull <- (n_success + n_1) / n_Agresti_Coull
+error_estandar_Agresti_Coull <-
+  sqrt(estimacion_Agresti_Coull * (1 - estimacion_Agresti_Coull) /
+    n_Agresti_Coull)
+intervalo_Agresti_Coull <-
+  estimacion_Agresti_Coull + c(-1, 1) * error_estandar_Agresti_Coull * percentil
+
+estimacion_Agresti_Coull
+intervalo_Agresti_Coull
+```
+
+- metodo conservativo
+```{r}
+p_I <- qbeta(alfa / 2, shape1 = n_success, shape2 = n - n_success + 1)
+p_D <- qbeta(1 - alfa / 2, shape1 = n_success + 1, shape2 = n - n_success)
+estimacion_conservativo <- n_success / n
+intervalo_conservativo <- c(p_I, p_D)
+
+estimacion_conservativo
+intervalo_conservativo
+```
+
+
+### Tecnicas de reducion de varianza
+#### Muestreo por importancia
+```{r}
+razon_de_verosimilitud <-
+  function(evolucion_valores_energia, parametros, nuevos_parametros) {
+    n_orbitas = ncol(evolucion_valores_energia)
+    
+    (nuevos_parametros$sd/parametros$sd)^n_orbitas*exp(1/2*(1/nuevos_parametros$sd^2*sum((evolucion_valores_energia[1,]- nuevos_parametros$mean)^2) - 1/parametros$sd^2*sum((evolucion_valores_energia[1,]-parametros$mean)^2)))
+  }
+```
+
+Replicacion
+```{r}
+nuevos_parametros <- parametros
+nuevos_parametros$mean <- 0.001
+
+set.seed(050700)
+
+tiempos_en_orbita_mayor_que_1e3 <- replicate(n, {
+  evolucion_val_energia <- genera_evolucion_valor_energia(nuevos_parametros)
+  (calculo_tiempo(evolucion_val_energia[2,]) > 1e3) * razon_de_verosimilitud(evolucion_val_energia, parametros, nuevos_parametros) #numero valores mayor que 1e3
+})
+```
+
+Estimacion
+(antes: [1] 0.0131
+[1] 0.01087135 0.01532865)
+
+```{r}
+estimacion_MC <- mean(tiempos_en_orbita_mayor_que_1e3)
+estimacion_MC
+
+# intervalo
+error_estandar_MC <- sqrt(var(tiempos_en_orbita_mayor_que_1e3) / n)
+intervalo_Montecarlo <-
+  estimacion_MC + c(-1, 1) * error_estandar_MC * percentil
+
+intervalo_Montecarlo
+```
+
+
+## Ejercicio 15: proceso estocastico
+```{r}
+rm(list = ls())
+```
+
+### 1) Generacion y modelacion
+```{r}
+genera_evolucion_individuos_poblacion <- function() {
+  evolucion_individuos_poblacion <- numeric()
+  numero_individuos_iniciales <- 1
+  numero_individuos_actuales <- numero_individuos_iniciales
+  
+  indice_temporal <- 0
+  
+  repeat{
+    nuevos_individuos <- 0
+    for(i in 1:numero_individuos_actuales){
+      nuevos_individuos <- nuevos_individuos + rpois(1, lambda = 0.9)
+    }
+    if (nuevos_individuos == 0) {
+      break
+    }
+    indice_temporal <- indice_temporal + 1
+    numero_individuos_actuales <- nuevos_individuos
+    evolucion_individuos_poblacion[[indice_temporal]] <- numero_individuos_actuales
+  }
+  evolucion_individuos_poblacion
+}
+```
+
+Calcula tiempo de extincion
+```{r}
+calcula_tiempo_extincion <- function(evolucion_individuos){
+  length(evolucion_individuos)
+}
+```
+
+### 2) Replicacion
+```{r}
+n <- 1e4
+
+tiempos_extincion <- replicate(n, {
+  evolucion_poblacion <- genera_evolucion_individuos_poblacion()
+  calcula_tiempo_extincion(evolucion_poblacion)
+})
+```
+
+### 3) Estimacion
+
+```{r}
+mean(tiempos_extincion) 
+```
+
+

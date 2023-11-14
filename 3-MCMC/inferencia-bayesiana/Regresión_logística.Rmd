@@ -1,0 +1,213 @@
+---
+title: "Regresión logística"
+output:
+  html_document:
+    theme:
+      version: 4
+---
+
+```{r replicabilidad, include=FALSE}
+set.seed(42679384)
+```
+
+Supongamos que tenemos un conjunto de datos \( D = \{\mathbf{e}_{1}, \dotsc, \mathbf{e}_{m}\} \), donde cada ejemplo \( \mathbf{e}_{j} \) es un vector de la forma
+\begin{equation*}
+  \mathbf{e}_{j} = (x_{1 j}, \dotsc, x_{n j}, y_j)^{T}
+\end{equation*}
+siendo \( x_{i j} \) números reales e \( y_{j} \) un valor binario (\( 0 \) o \( 1 \)).
+
+Un modelo de regresión logística asume \( X_1, \dotsc, X_n \) como variables predictoras e \( Y \) como variable respuesta, y considera que
+\begin{align*}
+  p
+  &= \mathbb{P}(Y = 1 \mid X_{1}, \dotsc, X_{n})
+  = \frac{
+      \mathrm{e}^{\beta_{0} + \beta_{1} X_1 + \dotsb + \beta_{n} X_n}
+    }{
+      1 + \mathrm{e}^{\beta_{0} + \beta_{1} X_1 + \dotsb + \beta_{n} X_n}
+    } \\
+  q
+  &= \mathbb{P}(Y = 0 \mid X_{1}, \dotsc, X_{n})
+  = 1 - p
+\end{align*}
+donde \( \beta_{0}, \dotsc, \beta_{n} \) son los parámetros del modelo (nótese que \( 0 < p, q < 1 \) para cualesquiera valores de estos parámetros).
+
+Usando notación matricial, si denotamos \( \boldsymbol{\beta} = (\beta_{0}, \dotsc, \beta_{n})^{T} \) y \( \mathbf{X} = (1, X_{1}, \dotsc, X_{n})^{T} \), entonces
+\begin{align*}
+  p
+  &= \frac{
+       \mathrm{e}^{\boldsymbol{\beta}^{T} \mathbf{X}}
+     }{
+       1 + \mathrm{e}^{\boldsymbol{\beta}^{T} \mathbf{X}}
+     }
+  = \frac{
+      1
+    }{
+      1 + \mathrm{e}^{-\boldsymbol{\beta}^{T} \mathbf{X}}
+    } \\
+  q
+  &= \frac{
+       1
+     }{
+       1 + \mathrm{e}^{\boldsymbol{\beta}^{T} \mathbf{X}}
+     }
+  = \frac{
+      \mathrm{e}^{-\boldsymbol{\beta}^{T} \mathbf{X}}
+    }{
+      1 + \mathrm{e}^{-\boldsymbol{\beta}^{T} \mathbf{X}}
+    }
+\end{align*}
+
+El conjunto de datos `logit` del paquete `mcmc` contiene cien ejemplos con los valores de cuatro variables predictoras y de la variable respuesta.
+
+```{r conjunto-de-datos}
+data(logit, package = "mcmc")
+
+head(logit)
+```
+
+Se pretende realizar una estimación bayesiana de los parámetros del modelo de regresión logística correspondiente. Para ello,
+
+1. Consideramos como distribución a priori de los parámetros una distribución normal: \( \beta_{i} \sim \mathrm{N}(0, 4), i = 0, \dotsc, 4 \). Por tanto,
+\begin{equation*}
+  f_{\mathrm{pri}}(\boldsymbol{\beta}) \propto
+  \prod_{i = 0}^{4} \mathrm{e}^{-\frac{\beta_{i}^{2}}{8}}
+\end{equation*}
+2. Asumiendo como independientes los ejemplos del conjunto de datos \(D\), se tiene para este último la siguiente verosimilitud:
+\begin{equation*}
+  \mathbb{P}(D \mid \boldsymbol{\beta})
+  = \prod_{j = 1}^{100} \mathbb{P}(\mathbf{e}_{j} \mid \boldsymbol{\beta})
+  = \prod_{\substack{j = 1\\y_{j} = 1}}^{100} p_{j}
+  \prod_{\substack{j = 1\\y_{j} = 0}}^{100} q_{j}
+  = \prod_{j = 1}^{100} p_{j}^{y_{j}} q_{j}^{1 - y_{j}}
+\end{equation*}
+donde
+\( \mathbf{e}_{j} = (x_{1 j}, \dotsc, x_{4 j}, y_j)^{T}, p_{j} = \mathbb{P}(y_{j} = 1 \mid x_{1 j}, \dotsc, x_{4 j}) \) y \( q_{j} = \mathbb{P}(y_{j} = 0 \mid x_{1 j}, \dotsc, x_{4 j}) \).
+3. En consecuencia, usando la regla de Bayes la distribución a posteriori de los parámetros viene dada por
+\begin{equation*}
+  f_{\mathrm{pos}}(\boldsymbol{\beta} \mid D)
+  \propto \prod_{j = 1}^{100} p_{j}^{y_{j}} q_{j}^{1 - y_{j}}
+  \prod_{i = 0}^{4} \mathrm{e}^{-\frac{\beta_{i}^{2}}{8}}
+\end{equation*}
+
+Usaremos, por tanto, el método de Montecarlo por cadenas de Markov para estimar \( \mathbb{E}_{f_{\mathrm{pos}}}[\boldsymbol{\beta}] \). En concreto, vamos a realizar un paseo aleatorio de Metropolis usando la función `metrop` del paquete `mcmc`. Esta función requiere que le pasemos el logaritmo de la densidad objetivo, que en nuestro caso toma la forma
+\begin{equation*}
+  \log f_{\mathrm{pos}}(\boldsymbol{\beta} \mid D)
+  \propto \sum_{j = 1}^{100} \bigl( y_{j} \log p_{j} + (1 - y_{j}) \log q_{j} \bigr) -
+  \frac{1}{8} \sum_{i = 0}^{4} \beta_{i}^{2}
+\end{equation*}
+donde
+\begin{align*}
+  \log p_{j}
+  &= \boldsymbol{\beta}^{T} \mathbf{x}_{j} - \log(1 + \mathrm{e}^{\boldsymbol{\beta}^{T} \mathbf{x}_{j}})
+  = - \log(1 + \mathrm{e}^{-\boldsymbol{\beta}^{T} \mathbf{x}_{j}}) \\
+  \log q_{j}
+  &= - \log(1 + \mathrm{e}^{\boldsymbol{\beta}^{T} \mathbf{x}_{j}})
+  = - \boldsymbol{\beta}^{T} \mathbf{x}_{j} - \log(1 + \mathrm{e}^{-\boldsymbol{\beta}^{T} \mathbf{x}_{j}})
+\end{align*}
+
+Teniendo en cuenta esto último, al realizar operaciones numéricas en el ordenador podemos encontrarnos dos tipos de problemas:
+
+* En primer lugar, si el exponente de la función \( \mathrm{e}^{x} \) es excesivamente grande, el resultado será demasiado grande para poder representarse en el ordenador y se obtendría `Inf` en su lugar.
+
+  ```{r exponencial-infinita}
+exp(709)
+exp(710)
+  ```
+
+  Para evitar este problema, siempre calcularemos \( \log p_{j} \) y  \( \log q_{j} \) usando la versión en la que el exponente es negativo.
+* En segundo lugar, para calcular \( log(1 + x) \) cuando \( |x| \) es muy cercano a cero es conveniente usar la función `log1p`.
+
+  ```{r logaritmo-cerca-de-1}
+log(1 + 1e-16)
+log1p(1e-16)
+  ```
+  
+Para facilitar la definición del logaritmo de la función de densidad a posteriori no normalizada es conveniente separar del conjunto de datos los valores de la variable respuesta y construir la matriz \( \mathbf{X} \) de valores de las variables predictoras y aumentada con una columna de unos.
+
+```{r log-densidad-posteriori}
+y <- logit$y
+head(y)
+x <- cbind(1, as.matrix(logit[-1]))
+head(x)
+
+logposteriori <- function(betas) {
+  z <- as.vector(betas %*% t(x))
+  logp <- ifelse(z < 0,
+    z - log1p(exp(z)),
+    -log1p(exp(-z))
+  )
+  logq <- ifelse(z < 0,
+    -log1p(exp(z)),
+    -z - log1p(exp(-z))
+  )
+  logverosimilitud <- sum(y * logp + (1 - y) * logq)
+  logpriori <- -sum(betas^2) / 8
+  logverosimilitud + logpriori
+}
+```
+
+Como valores iniciales para los parámetros de la regresión logística tomamos los más probables a priori, \( \beta_{i} = 0 \) para \( i = 0, \dotsc, 4 \), queriendo esto decir que inicialmente consideramos \( p_{j} = q_{j} = \tfrac{1}{2} \). Aunque más adelante veremos que la cadena de Markov converge rápidamente a partir de estos valores iniciales, en realidad los parámetros más probables a priori no tendrían por qué ser también probables a posteriori. Una manera más rigurosa de obtener buenos valores iniciales sería a partir de los coeficientes de un modelo lineal generalizado ajustado al conjunto de datos.
+
+A continuación, buscamos, según la regla empírica, que el porcentaje de estados aceptados al generar la realización del paseo aleatorio de Metropolis sea del 25 %. Finalmente, realizamos un diagnóstico de convergencia mediante una gráfico de traza.
+
+```{r paseo-Metropolis}
+library(mcmc)
+library(coda)
+
+betas_iniciales <- rep(0, times = 5)
+paseo_Metropolis <- metrop(logposteriori, initial = betas_iniciales, nbatch = 1e4)
+paseo_Metropolis$accept
+paseo_Metropolis <- metrop(paseo_Metropolis, scale = .5)
+paseo_Metropolis$accept
+paseo_Metropolis <- metrop(paseo_Metropolis, scale = .25)
+paseo_Metropolis$accept
+paseo_Metropolis <- metrop(paseo_Metropolis, scale = .4)
+paseo_Metropolis$accept
+
+paseo_Metropolis$batch |>
+  mcmc() |>
+  traceplot()
+```
+
+Estamos ya en condiciones de realizar la estimación requerida, construyendo un intervalo de confianza mediante el método de las medias por lotes.
+
+El gráfico de autocorrelación muestra que una longitud \( 100 \) para los lotes es adecuada para obtener unas medias de los lotes suficientemente independientes.
+
+```{r estimación}
+paseo_Metropolis$batch |>
+  mcmc() |>
+  autocorr.plot(lag.max = 100, auto.layout = FALSE)
+
+paseo_Metropolis <- metrop(paseo_Metropolis, nbatch = 1e3, blen = 1e2)
+
+paseo_Metropolis$batch |>
+  mcmc() |>
+  autocorr.plot(lag.max = 100, auto.layout = FALSE)
+
+library(purrr)
+
+estimaciones_betas <- paseo_Metropolis$batch |>
+  array_branch(margin = 2) |>
+  map_dbl(mean)
+names(estimaciones_betas) <- paste0("beta", 0:4)
+estimaciones_betas
+
+errores_estandar_betas <- paseo_Metropolis$batch |>
+  array_branch(margin = 2) |>
+  map_dbl(var) |>
+  magrittr::divide_by(paseo_Metropolis$nbatch) |>
+  sqrt()
+# También se pueden calcular como sigue:
+# errores_estandar_betas <- paseo_Metropolis$batch |>
+#   array_branch(margin = 2) |>
+#   map_dbl(\(x) sqrt(var(x) / paseo_Metropolis$nbatch))
+
+probabilidad_cobertura <- 0.95
+alfa <- 1 - probabilidad_cobertura
+percentil <- qnorm(1 - alfa / 2)
+map2(
+  estimaciones_betas,
+  errores_estandar_betas,
+  \(estimacion, error) estimacion + c(-1, 1) * error * percentil
+)
+```
