@@ -1,0 +1,305 @@
+---
+title: "Ejercicios MCMC"
+output: html_document
+---
+
+## General settings
+```{r}
+set.seed(050700)
+```
+
+## Ejercicio 1
+```{r settings-1}
+rm(list = ls())
+```
+
+
+### MH Beta sampler
+Distribucion que quieremos simular (no normalizada) y muestrador independiente
+```{r}
+alfa_obj <- 2.7
+beta_obj <- 6.3
+
+c <- 0.1
+d <- 0.9
+
+library(extraDistr)
+
+# densidad objetivo
+f_u <- function(x) {
+  (x^(alfa_obj-1)*(1-x)^(beta_obj-1))*(x > c & x < d)*1/(beta(alfa_obj, beta_obj)*(pbeta(d,alfa_obj,beta_obj)-pbeta(c,alfa_obj,beta_obj)))
+}
+
+
+# muestrador independiente: densidad y generador
+alfa_sampler <- 2
+beta_sampler <- 6
+
+q <- function(y) {
+  dbeta(y, shape1 = 2, shape2 = 6)
+}
+
+q_generator <- function(){
+  rbeta(1, shape1 = alfa_sampler, shape2 = beta_sampler)
+}
+
+ggplot() +
+  geom_function(fun = f_u) +
+  geom_function(fun = q, colour = "red") +
+  xlim(0, 1)
+```
+
+Metropolis-Hastings, usando Beta(2, 6) como muestreador independiente
+```{r}
+n <- 1e6
+
+estados <- numeric(n)
+estados[1] <- 0.5 # -> f(1) seria igual a 0, tenemos que eligir x0 t.q. f(x0) > 0
+for (t in seq_len(n - 1)) {
+  estado_actual <- estados[t]
+  
+  # MUESTRADOR INDEPENDIENTE
+  estado_propuesto <- q_generator()
+  
+  # calculo de la razon de Hastings
+  razon_Hastings <-
+    (f_u(estado_propuesto) * q(estado_actual)) /
+      (f_u(estado_actual) * q(estado_propuesto))
+  
+  # accept-reject
+  u <- runif(1)
+  if (u < razon_Hastings) {
+    estados[t + 1] <- estado_propuesto
+  } else {
+    estados[t + 1] <- estado_actual
+  }
+}
+
+# Comparacion entre densidad generada y densidad objetivo
+ggplot(data.frame(x = estados), aes(x = x)) +
+  geom_histogram(aes(y = after_stat(density))) +
+  geom_function(fun = f_u) +
+  xlim(0,1)
+```
+
+Separacion de los estados de la cadena de Markov en un cierto número de subgrupos de la misma longitud llamados lotes (el objetivo es de ganar valores mas incorrelados)
+```{r}
+numero_lotes <- 500
+longitud_lotes <- n / numero_lotes
+medias_lotes <- numeric(numero_lotes)
+
+for (i in seq_len(numero_lotes)) {
+  indices_lotes <- seq(
+    longitud_lotes * (i - 1) + 1,
+    longitud_lotes * i
+  )
+  medias_lotes[i] <- mean(estados[indices_lotes])
+}
+```
+
+Estimacion y intervalo de confianza
+```{r}
+estimacion_MHBeta <- mean(medias_lotes)
+varianza_MHBeta <- var(medias_lotes) / numero_lotes
+
+error_estandar_MHBeta <- sqrt(varianza_MHBeta)
+
+probabilidad_cobertura <- 0.95
+alfa <- 1 - probabilidad_cobertura
+
+percentil <- qnorm(1 - alfa / 2)
+
+intervalo_confianza_MHBeta <- estimacion_MHBeta + c(-1, 1) * error_estandar_MHBeta * percentil
+
+estimacion_MHBeta
+intervalo_confianza_MHBeta
+```
+
+### MH Uniform sampler
+```{r}
+# muestrador independiente: densidad y generador
+q_uniform <- function(y) {
+  dunif(y, min = c, max = d)
+}
+
+q_unif_gen <- function(){
+  runif(1, min = c, max = d)
+}
+
+ggplot() +
+  geom_function(fun = f_u) +
+  geom_function(fun = q_uniform, colour = "red") +
+  xlim(0, 1)
+```
+Usamos la uniforme como muestrador independiente
+```{r}
+n <- 1e6
+
+estados <- numeric(n)
+estados[1] <- 0.5 # -> f(1) seria igual a 0, tenemos que eligir x0 t.q. f(x0) > 0
+for (t in seq_len(n - 1)) {
+  estado_actual <- estados[t]
+  
+  # MUESTRADOR INDEPENDIENTE
+  estado_propuesto <- q_unif_gen()
+  
+  # calculo de la razon de Hastings
+  razon_Hastings <-
+    (f_u(estado_propuesto) * q_uniform(estado_actual)) /
+      (f_u(estado_actual) * q_uniform(estado_propuesto))
+  
+  # accept-reject
+  u <- runif(1)
+  if (u < razon_Hastings) {
+    estados[t + 1] <- estado_propuesto
+  } else {
+    estados[t + 1] <- estado_actual
+  }
+}
+
+ggplot(data.frame(x = estados), aes(x = x)) +
+  geom_histogram(aes(y = after_stat(density))) +
+  geom_function(fun = f_u) +
+  xlim(0,1)
+```
+
+Separacion de los estados de la cadena de Markov en un cierto número de subgrupos de la misma longitud llamados lotes (el objetivo es de ganar valores mas incorrelados)
+```{r}
+numero_lotes <- 500
+longitud_lotes <- n / numero_lotes
+medias_lotes <- numeric(numero_lotes)
+
+for (i in seq_len(numero_lotes)) {
+  indices_lotes <- seq(
+    longitud_lotes * (i - 1) + 1,
+    longitud_lotes * i
+  )
+  medias_lotes[i] <- mean(estados[indices_lotes])
+}
+```
+
+Estimacion y intervalo de confianza
+```{r}
+estimacion_MHUnif <- mean(medias_lotes)
+varianza_MHUnif <- var(medias_lotes) / numero_lotes
+
+error_estandar_MHUnif <- sqrt(varianza_MHUnif)
+
+probabilidad_cobertura <- 0.95
+alfa <- 1 - probabilidad_cobertura
+
+percentil <- qnorm(1 - alfa / 2)
+
+intervalo_confianza_MHUnif <- estimacion_MHUnif + c(-1, 1) * error_estandar_MHUnif * percentil
+
+estimacion_MHUnif
+intervalo_confianza_MHUnif
+```
+
+### Random Walk with mcmc package
+```{r}
+library(mcmc)
+
+log_f_u <- function(x) {
+  if (x <= c || x >= d) {
+    -Inf
+  } else {
+    (alfa -1)*log(x) + (beta-1)*log(1-x)
+  }
+}
+
+paseo_Metropolis <- metrop(
+  log_f_u, 
+  initial = 0.5, # estado inicial tiene que ser limitado
+  nbatch = 1e4)
+```
+
+Traceplot
+```{r}
+library(coda)
+traceplot(mcmc(paseo_Metropolis$batch))
+```
+Densidad
+```{r}
+densplot(mcmc(paseo_Metropolis$batch))
+
+```
+Para intentar que la cadena de Markov converja lo más rápido posible, hay una regla empírica obtenida a partir del análisis de un problema concreto (y que, por lo tanto, no siempre es aplicable) que establece que el porcentaje de nuevos estados aceptados debería ser del 25 %. El razonamiento es que un porcentaje demasiado bajo implica que la cadena se encuentre estancada la mayor parte del tiempo, mientras que un porcentaje demasiado alto indicará que los nuevos estados propuestos varían muy poco con respecto a los estados actuales y, por tanto, la cadena de Markov evoluciona muy lentamente.
+
+La componente accept de la salida de la función metrop proporciona ese porcentaje.
+```{r}
+paseo_Metropolis$accept
+```
+
+La función metrop tiene la capacidad de «continuar extendiendo» la cadena de Markov cambiando o manteniendo los valores de los parámetros. Para ello basta proporcionarle como argumentos la salida anterior y los nuevos valores de los parámetros que cambien. Para aumentar el porcentaje de nuevos estados aceptados se puede reducir el valor de scale, ya que eso hará que se propongan nuevos estados «más cercanos» a los estados actuales y, en consecuencia, con mayor probabilidad de ser aceptados. Por el razonamiento contrario, para disminuir ese porcentaje bastará aumentar el valor de scale.
+
+```{r}
+paseo_Metropolis <- metrop(paseo_Metropolis, scale = 0.6)
+paseo_Metropolis$accept
+```
+
+Autocorrelacion
+```{r}
+autocorr.plot(mcmc(paseo_Metropolis$batch))
+```
+
+```{r}
+paseo_Metropolis <- metrop(paseo_Metropolis, nbatch = 500, blen = 2000)
+autocorr.plot(mcmc(paseo_Metropolis$batch))
+```
+
+Estimacion
+```{r}
+library(purrr)
+
+estimacion_MHpaseo_al <- paseo_Metropolis$batch |> 
+  array_branch(margin = 2) |> 
+  map_dbl(mean)
+
+varianza_MHpaseo_al <- paseo_Metropolis$batch |> 
+  array_branch(margin = 2) |> 
+  map_dbl(var)
+
+error_estandar_MHpaseo_al <- paseo_Metropolis$batch |> 
+  array_branch(margin = 2) |> 
+  map_dbl(var) |> 
+  magrittr::divide_by(paseo_Metropolis$nbatch) |> 
+  sqrt()
+
+probabilidad_cobertura <- 0.95
+alfa <- 1 - probabilidad_cobertura
+
+percentil <- qnorm(1 - alfa / 2)
+
+intervalo_confianza_MHpaseo_al <- 
+  estimacion_MHpaseo_al + c(-1, 1) * error_estandar_MHpaseo_al * percentil
+
+estimacion_MHpaseo_al
+intervalo_confianza_MHpaseo_al
+```
+
+### Results
+```{r}
+
+```
+
+
+## Ejercicio 2
+```{r settings-2}
+rm(list = ls())
+```
+
+## Ejercicio 3
+```{r settings-3}
+rm(list = ls())
+```
+
+## Ejercicio 4
+```{r settings-4}
+rm(list = ls())
+```
+
+## Ejercicio 5
+```{r settings-5}
+rm(list = ls())
+```
