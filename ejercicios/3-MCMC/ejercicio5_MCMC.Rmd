@@ -1,0 +1,247 @@
+---
+title: "Ejercicio 5"
+output: html_document
+---
+
+```{r}
+rm(list = ls())
+set.seed(050700)
+```
+
+## Modelacion
+- y: distance
+- x: speed
+
+```{r}
+data(cars)
+N <- dim(cars)[1]
+
+f_u <- function(teta){
+  
+  a <- teta[[1]]
+  b <- teta[[2]]
+  c <- teta[[3]]
+  sigma2 <- teta[[4]]
+  
+  (1/sigma2)^(N/2)*exp(-1/(2*sigma2)*sum((cars$dist - a - b*cars$speed - c*cars$speed^2)^2))
+}
+```
+
+
+## Muestrador de Gibbs
+```{r}
+n <- 5e5
+n_parametros <- 4
+estados <- matrix(nrow = n, ncol = n_parametros)
+
+y <- cars$dist
+x <- cars$speed
+
+#inizialization
+estados[1, ] <- c(1/2, 1/2, 1/2, 2)
+
+for (t in seq_len(n - 1)) {
+  a_actual <- estados[t, 1]
+  b_actual <- estados[t, 2]
+  c_actual <- estados[t, 3]
+  sigma2_actual <- estados[t, 4]
+  
+  sigma2_nuevo <- 1 / rgamma(1, shape = N/2 + 1, 
+                             rate =
+                      1/2*sum((y-a_actual-b_actual*x-c_actual*x^2)^2)
+                      )
+  
+  a_nuevo <- rnorm(1, 
+                   mean = sum(y - b_actual*x- c_actual*x^2)/N,
+                   sd = sqrt(sigma2_nuevo/N))
+  
+  b_nuevo <- rnorm(1, 
+                   mean = sum(x*(y - a_nuevo - c_actual*x^2)) / 
+                     sum(cars$speed^2),
+                   sd = sqrt(sigma2_nuevo/sum(x^2)))
+  
+  c_nuevo <- rnorm(1, 
+                   mean = sum(x^2*(y - a_nuevo - b_nuevo*x)) / 
+                     sum(x^4),
+                   sd = sqrt(sigma2_nuevo/sum(x^4)))
+    
+  estados[t + 1, ] <- c(a_nuevo, b_nuevo, c_nuevo, sigma2_nuevo)
+}
+```
+
+#### Diagnostico de convergencia
+```{r}
+library(coda)
+
+estados |>
+  mcmc() |>
+  traceplot()
+```
+
+#### Estimacion
+Eleccion de la longitud de los lotes
+```{r}
+estados |>
+  mcmc() |>
+  autocorr.plot(lag.max = 2000)
+```
+
+Muestrador mediante media por lotes
+```{r}
+estado_actual <- estados[n, ]
+
+n <- 1e6
+longitud_lotes <- 1e4
+numero_lotes <- n / longitud_lotes
+medias_lotes <- matrix(nrow = numero_lotes, ncol = n_parametros)
+
+for (i in seq_len(numero_lotes)) {
+  suma_estados <- rep(0, n_parametros)
+  for (t in seq_len(longitud_lotes)) {
+    suma_estados <- suma_estados + estado_actual
+  
+    a_actual <- estados[t, 1]
+    b_actual <- estados[t, 2]
+    c_actual <- estados[t, 3]
+    sigma2_actual <- estados[t, 4]
+    
+    sigma2_nuevo <- 1 / rgamma(1, shape = N/2 + 1, 
+                             rate =
+                      1/2*sum((y-a_actual-b_actual*x-c_actual*x^2)^2)
+                      )
+  
+    a_nuevo <- rnorm(1, 
+                     mean = sum(y - b_actual*x- c_actual*x^2)/N,
+                     sd = sqrt(sigma2_nuevo/N))
+    
+    b_nuevo <- rnorm(1, 
+                     mean = sum(x*(y - a_nuevo - c_actual*x^2)) / 
+                       sum(cars$speed^2),
+                     sd = sqrt(sigma2_nuevo/sum(x^2)))
+    
+    c_nuevo <- rnorm(1, 
+                     mean = sum(x^2*(y - a_nuevo - b_nuevo*x)) / 
+                       sum(x^4),
+                     sd = sqrt(sigma2_nuevo/sum(x^4)))
+      
+    estado_actual <- c(a_nuevo, b_nuevo, c_nuevo, sigma2_nuevo)
+
+  }
+  medias_lotes[i, ] <- suma_estados / longitud_lotes
+}
+
+medias_lotes |>
+  mcmc() |>
+  autocorr.plot()
+```
+
+Estimacion
+```{r}
+library(purrr)
+
+estimaciones <- array_branch(medias_lotes, margin = 2) |>
+  map_dbl(mean)
+  estimaciones
+```
+
+Confidence intervals
+```{r}
+errores_estandar <- array_branch(medias_lotes, margin = 2) |>
+  map_dbl(var) |>
+  magrittr::divide_by(numero_lotes) |>
+  sqrt()
+
+probabilidad_cobertura <- 0.95
+alfa <- 1 - probabilidad_cobertura
+percentil <- qnorm(1 - alfa / 2)
+
+map2(
+  estimaciones,
+  errores_estandar,
+  \(estimacion, error) estimacion + c(-1, 1) * error * percentil
+)
+```
+
+
+## Paseo aleatorio
+```{r}
+library(mcmc)
+
+log_f_u <- function(teta) {
+  a <- teta[[1]]
+  b <- teta[[2]]
+  c <- teta[[3]]
+  sigma2 <- teta[[4]]
+  
+  -N/2*log(sigma2) - 1/(2*sigma2)*sum((cars$dist - a - b*cars$speed -c*cars$speed^2)^2)
+}
+
+paseo_Metropolis <- metrop(
+  log_f_u, 
+  initial = c(-40, 5, 0, 340), # estado inicial tiene que ser limitado
+  nbatch = 1e5)
+```
+
+#### Diagnostico de convergencia
+Empiric rule: $0.25\%$
+```{r}
+paseo_Metropolis$accept
+
+paseo_Metropolis <- metrop(paseo_Metropolis, 
+                           scale = sqrt(c(15, 5e-2, 3e-4, 500)))
+
+paseo_Metropolis$accept
+```
+
+Traceplot
+```{r}
+library(coda)
+
+paseo_Metropolis$batch |>
+  mcmc() |>
+  traceplot()
+```
+
+#### Estimacion
+Necesitamos lotes de longitud mayor que 1000
+```{r}
+library(purrr)
+
+paseo_Metropolis$batch |>
+  mcmc() |>
+  autocorr.plot(lag.max = 5e3)
+```
+
+```{r}
+paseo_Metropolis <-
+  metrop(paseo_Metropolis, nbatch = 1e4, blen = 2e3)
+
+paseo_Metropolis$batch |>
+  mcmc() |>
+  autocorr.plot()
+```
+
+Estimacion
+```{r}
+estimacion <- paseo_Metropolis$batch |>
+  array_branch(margin = 2) |>
+  map_dbl(mean)
+estimacion
+```
+
+Intervalos de confianza
+```{r}
+error_estandar <- paseo_Metropolis$batch |>
+  array_branch(margin = 2) |>
+  map_dbl(var) |>
+  magrittr::divide_by(paseo_Metropolis$nbatch) |>
+  sqrt()
+
+probabilidad_cobertura <- 0.95
+alfa <- 1 - probabilidad_cobertura
+percentil <- qnorm(1 - alfa / 2)
+intervalo_confianza <- estimacion + 
+  matrix(rep(c(-1,1), 4), nrow = 4, ncol = 2, byrow = T) * error_estandar * percentil
+
+intervalo_confianza
+```
