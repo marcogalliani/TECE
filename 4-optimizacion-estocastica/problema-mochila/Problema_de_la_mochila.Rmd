@@ -1,0 +1,314 @@
+---
+title: "Problema de la mochila"
+output:
+  html_document:
+    params:
+      perm_crossover: c()
+    theme:
+      version: 4
+      
+---
+
+```{r reproducibilidad}
+set.seed(206720293)
+```
+
+```{r, message=FALSE}
+library(GA)
+library(purrr)
+```
+
+
+```{r lectura-de-datos}
+obten_capacidad_mochila <- function(instancia) {
+  instancia |> 
+    scan(what = character(), nmax = 2) |> 
+    magrittr::extract2(2) |> 
+    as.double()
+}
+
+obten_datos_objetos <- function(instancia) {
+  instancia |> 
+    readr::read_table(skip = 5, col_names = c("Valores", "Pesos"))
+}
+```
+
+## Genotipo binarios
+
+### Modelacion
+```{r}
+obten_fenotipo <- function(genotipo) {
+  genotipo
+}
+
+calcula_valor_total <- function(fenotipo, objetos) {
+  sum(fenotipo * objetos$Valores)
+}
+
+calcula_penalizacion <- function(fenotipo, capacidad, objetos) {
+  peso_total <- sum(fenotipo * objetos$Pesos)
+  if (peso_total >= capacidad) {
+    peso_total - capacidad
+  } else {
+    0
+  }
+}
+
+crea_funcion_fitness <- function(capacidad, objetos, factor_penalizacion) {
+  function(genotipo) {
+    fenotipo <- obten_fenotipo(genotipo)
+    valor_total <- calcula_valor_total(fenotipo, objetos)
+    penalizacion <- calcula_penalizacion(fenotipo, capacidad, objetos)
+    max(0, valor_total - factor_penalizacion * penalizacion)
+  }
+}
+```
+
+### Resolucion
+Hyperparametros (genotipo binario):
+
+Parametros
+- popSize
+- pcrossover
+- pmutation
+- elitism
+
+Operadores (por defecto: lr, sp, unif)
+- operador de seleccion: linerar rank, non-linear rank, roulette wheel, tournament
+- operador de cruce: single point, uniform
+
+```{r, message=FALSE}
+instancia <- "Problema_de_la_mochila_1.txt"
+capacidad <- obten_capacidad_mochila(instancia)
+objetos <- obten_datos_objetos(instancia)
+
+ultima_generacion <-
+  ga(type = "binary", nBits = nrow(objetos),
+     fitness = crea_funcion_fitness(capacidad, objetos,
+                                    sum(objetos$Valores) / 10))
+summary(ultima_generacion)
+plot(ultima_generacion)
+```
+
+```{r, message=FALSE}
+instancia <- "Problema_de_la_mochila_2.txt"
+capacidad <- obten_capacidad_mochila(instancia)
+objetos <- obten_datos_objetos(instancia)
+
+ultima_generacion <-
+  ga(type = "binary", nBits = nrow(objetos),
+     fitness = crea_funcion_fitness(capacidad, objetos,
+                                    sum(objetos$Valores) / 10))
+summary(ultima_generacion)
+plot(ultima_generacion)
+```
+
+```{r, message=FALSE}
+instancia <- "Problema_de_la_mochila_3.txt"
+capacidad <- obten_capacidad_mochila(instancia)
+objetos <- obten_datos_objetos(instancia)
+
+ultima_generacion <-
+  ga(type = "binary", nBits = nrow(objetos),
+     fitness = crea_funcion_fitness(capacidad, objetos,
+                                    sum(objetos$Valores) / 10))
+summary(ultima_generacion)
+plot(ultima_generacion)
+```
+
+```{r, message=FALSE}
+instancia <- "Problema_de_la_mochila_4.txt"
+capacidad <- obten_capacidad_mochila(instancia)
+objetos <- obten_datos_objetos(instancia)
+
+ultima_generacion <-
+  ga(type = "binary", nBits = nrow(objetos),
+     fitness = crea_funcion_fitness(capacidad, objetos,
+                                    sum(objetos$Valores) / 10))
+summary(ultima_generacion)
+plot(ultima_generacion)
+```
+
+```{r, message=FALSE}
+instancia <- "Problema_de_la_mochila_5.txt"
+capacidad <- obten_capacidad_mochila(instancia)
+objetos <- obten_datos_objetos(instancia)
+
+ultima_generacion <-
+  ga(type = "binary", nBits = nrow(objetos),
+     fitness = crea_funcion_fitness(capacidad, objetos,
+                                    sum(objetos$Valores) / 10))
+summary(ultima_generacion)
+plot(ultima_generacion)
+```
+
+
+## Permutaciones
+
+### Modelacion
+```{r}
+obten_fenotipo <- function(genotipo, capacidad, objetos) {
+  fenotipo <- numeric(length(genotipo))
+  peso_total <- 0
+  for (objeto in genotipo) {
+    peso_objeto <- objetos$Pesos[[objeto]]
+    if (peso_total + peso_objeto <= capacidad) {
+      peso_total <- peso_total + peso_objeto
+      fenotipo[[objeto]] <- 1
+    }
+  }
+  fenotipo
+}
+
+calcula_valor_total <- function(fenotipo, objetos) {
+  sum(fenotipo * objetos$Valores)
+}
+
+crea_funcion_fitness <- function(capacidad, objetos) {
+  function(genotipo) {
+    fenotipo <- obten_fenotipo(genotipo, capacidad, objetos)
+    calcula_valor_total(fenotipo, objetos)
+  }
+}
+```
+
+
+### Resolucion
+
+Hyperparametros (genotipo permutacion)
+
+Parametros
+- popSize
+- pcrossover
+- pmutation
+- elitism
+
+Operadores (por defecto: lr selection, order crossover, simple inversion mutation)
+- operador de seleccion: linerar rank, non-linear rank, roulette wheel, tournament
+- operador de cruce: cycle, partially matched, order, position-based
+- operador de mutacion: simple inversion, insertion mutation, swap, displacement, scramble
+
+```{r, message=FALSE}
+# HYPERPARAMETROS
+
+# operadores:
+# -> seleccion
+# c(gaperm_lrSelection, gaperm_nlrSelection, gaperm_rwSelection, gaperm_tourSelection)
+# -> cruce
+# c(gaperm_cxCrossover, gaperm_pmxCrossover, gaperm_oxCrossover, gaperm_pbxCrossover)
+# -> mutacion
+# c(gaperm_simMutation, gaperm_ismMutation, gaperm_swMutation, gaperm_dmMutation, gaperm_scrMutation)
+
+instancia <- "Problema_de_la_mochila_1.txt"
+capacidad <- obten_capacidad_mochila(instancia)
+objetos <- obten_datos_objetos(instancia)
+
+gaControl("useRcpp" = FALSE) # error with M2: https://github.com/luca-scr/GA/issues/52
+
+ultima_generacion <-
+  ga(type = "permutation", 
+     lower = 1, upper = nrow(objetos),
+     fitness = crea_funcion_fitness(capacidad, objetos),
+     
+     # operadores
+     selection = gaperm_lrSelection,
+     crossover = gaperm_pmxCrossover,
+     mutation = gaperm_ismMutation,
+     
+     # parametros
+     popSize = 1000,
+     pmutation = 0.1,
+     pcrossover = 0.8,
+     #elitism = 0.1,
+     
+     maxiter = 100
+     )
+
+summary(ultima_generacion)
+ultima_generacion@solution |> 
+  array_branch(margin = 1) |> 
+  map(obten_fenotipo, capacidad, objetos) |> 
+  unique()
+plot(ultima_generacion)
+```
+
+```{r, message=FALSE}
+instancia <- "Problema_de_la_mochila_2.txt"
+capacidad <- obten_capacidad_mochila(instancia)
+objetos <- obten_datos_objetos(instancia)
+
+ultima_generacion <-
+  ga(type = "permutation", lower = 1, upper = nrow(objetos),
+     fitness = crea_funcion_fitness(capacidad, objetos))
+summary(ultima_generacion)
+ultima_generacion@solution |> 
+  array_branch(margin = 1) |> 
+  map(obten_fenotipo, capacidad, objetos) |> 
+  unique()
+plot(ultima_generacion)
+```
+
+```{r, message=FALSE}
+instancia <- "Problema_de_la_mochila_3.txt"
+capacidad <- obten_capacidad_mochila(instancia)
+objetos <- obten_datos_objetos(instancia)
+
+ultima_generacion <-
+  ga(type = "permutation", lower = 1, upper = nrow(objetos),
+     fitness = crea_funcion_fitness(capacidad, objetos))
+summary(ultima_generacion)
+ultima_generacion@solution |> 
+  array_branch(margin = 1) |> 
+  map(obten_fenotipo, capacidad, objetos) |> 
+  unique()
+plot(ultima_generacion)
+```
+
+```{r, message=FALSE}
+instancia <- "Problema_de_la_mochila_4.txt"
+capacidad <- obten_capacidad_mochila(instancia)
+objetos <- obten_datos_objetos(instancia)
+
+ultima_generacion <-
+  ga(type = "permutation", lower = 1, upper = nrow(objetos),
+     fitness = crea_funcion_fitness(capacidad, objetos))
+summary(ultima_generacion)
+ultima_generacion@solution |> 
+  array_branch(margin = 1) |> 
+  map(obten_fenotipo, capacidad, objetos) |> 
+  unique()
+plot(ultima_generacion)
+```
+
+```{r, message=FALSE}
+instancia <- "Problema_de_la_mochila_5.txt"
+capacidad <- obten_capacidad_mochila(instancia)
+objetos <- obten_datos_objetos(instancia)
+
+ultima_generacion <-
+  ga(type = "permutation", 
+     lower = 1, upper = nrow(objetos),
+     fitness = crea_funcion_fitness(capacidad, objetos),
+     
+     # operadores
+     selection = gaperm_lrSelection,
+     crossover = gaperm_pmxCrossover,
+     mutation = gaperm_ismMutation,
+     
+     # parametros
+     popSize = 10000,
+     pmutation = 0.2,
+     pcrossover = 0.8,
+     #elitism = 0.1,
+     
+     maxiter = 100
+     )
+
+
+summary(ultima_generacion)
+ultima_generacion@solution |> 
+  array_branch(margin = 1) |> 
+  map(obten_fenotipo, capacidad, objetos) |> 
+  unique()
+plot(ultima_generacion)
+```

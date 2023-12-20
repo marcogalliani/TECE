@@ -1,0 +1,192 @@
+---
+title: "Bin packing problem"
+output: html_document
+---
+
+```{r}
+set.seed(050700)
+```
+
+## Datos
+Extracting data
+```{r}
+library(purrr)
+
+obten_capacidad <- function(instancia) {
+  instancia |> 
+    scan(what = character(), nmax = 2) |> 
+    magrittr::extract2(2) |> 
+    as.double()
+}
+
+obten_tamanos_objetos <- function(instancia) {
+  instancia |> 
+    readr::read_table(skip = 5, col_names = F)
+}
+```
+
+## Codifica binaria
+
+### Modelacion
+```{r}
+obten_fenotipo <- function(genotipo, n_objetos) {
+  
+  fenotipo <- list()
+  
+  fenotipo$continidores_utilizados <- genotipo[1:n_objetos]
+  fenotipo$asignacion_obj_contenidor <- matrix(genotipo[(n_objetos+1):length(genotipo)],
+                                               nrow = n_objetos, byrow = T)
+  return(fenotipo)
+}
+
+calcula_contenidores_utilizados <- function(fenotipo) {
+  sum(fenotipo$continidores_utilizados)
+}
+
+calcula_penalizacion <- function(fenotipo, tamanos_objetos, capacidad) {
+  
+  #primero vinculo: asignacion de cada objeto a un solo contenidor
+  asignaciones_por_objetos<- apply(fenotipo$asignacion_obj_contenidor, MARGIN = 1, sum)
+  penalizacion_por_objetos <-  abs(asignaciones_por_objetos - 1)
+  
+  #segundo vinculo: capacidad de los contenidores
+  penalizacion_capacida <- 
+    max(t(as.matrix(tamanos_objetos)) %*% fenotipo$asignacion_obj_contenidor - capacidad*fenotipo$continidores_utilizados,0)
+ 
+  sum(penalizacion_por_objetos) + penalizacion_capacida
+}
+
+
+crea_funcion_fitness <- function(capacidad, tamanos_objetos, factor_penalizacion) {
+  function(genotipo) {
+    n_objetos <- dim(tamanos_objetos)[1]
+    fenotipo <- obten_fenotipo(genotipo, n_objetos)
+    
+    contenidores_utilizados <- calcula_contenidores_utilizados(fenotipo)
+    penalizacion <- calcula_penalizacion(fenotipo, tamanos_objetos, capacidad)
+    
+    min(- contenidores_utilizados - factor_penalizacion*penalizacion, 0)
+  }
+}
+```
+
+### Resoulucion
+```{r}
+library(GA)
+
+instancia <- "instancias-empaquetamento/Problema_del_empaquetado_1.txt"
+
+capacidad <- obten_capacidad(instancia)
+tamanos_objetos <- obten_tamanos_objetos(instancia)
+
+n_objetos <- dim(tamanos_objetos)[1]
+
+gaControl("useRcpp" = FALSE) # error with M2: https://github.com/luca-scr/GA/issues/52
+
+ultima_generacion <-
+  ga(type = "binary", 
+     nBits = n_objetos*(n_objetos + 1),
+     fitness = crea_funcion_fitness(capacidad, tamanos_objetos, sum(tamanos_objetos)/10),
+     popSize = 1000,
+     pcrossover = 0.8,
+     monitor = T,
+     maxiter = 400,
+     run = 150
+     )
+summary(ultima_generacion)
+plot(ultima_generacion)
+```
+
+## Codifica mediante permutaciones
+### Modelacion 
+```{r}
+obten_fenotipo <- function(genotipo, n_objetos, tamanos_objetos) {
+  
+  contenidores_utilizados <- rep(0, n_objetos)
+  asignacion_obj_contenidor <- matrix(rep(0, n_objetos^2),
+                                      ncol = n_objetos, byrow = T)
+  
+  asignacion_obj <- rep(F, n_objetos)
+  
+  for(index_cont in 1:length(contenidores_utilizados)){
+    capacidad_residua_cont <- capacidad
+    
+    for(index_obj in genotipo){
+      
+      if(tamanos_objetos[[1]][index_obj] <= capacidad_residua_cont && !asignacion_obj[index_obj]){
+        asignacion_obj_contenidor[index_cont, index_obj] <- 1
+        
+        asignacion_obj[index_obj] <- T
+        capacidad_residua_cont <- capacidad_residua_cont - tamanos_objetos[[1]][index_obj]
+      }
+    }
+  }
+  
+  # return struct
+  fenotipo <- list()
+  fenotipo$contenidores_utilizados <- ifelse(as.vector(apply(asignacion_obj_contenidor, MARGIN = 1, sum)) > 0, 
+                                             1, 0)
+  fenotipo$asignacion_obj_contenidor <- asignacion_obj_contenidor
+  
+  return(fenotipo)
+}
+
+calcula_contenidores_utilizados <- function(fenotipo) {
+  sum(fenotipo$contenidores_utilizados)
+}
+
+
+crea_funcion_fitness <- function(capacidad, tamanos_objetos) {
+  
+  function(genotipo) {
+    
+    n_objetos <- dim(tamanos_objetos)[1]
+    fenotipo <- obten_fenotipo(genotipo, n_objetos, tamanos_objetos)
+    
+    contenidores_utilizados <- calcula_contenidores_utilizados(fenotipo)
+    
+    - contenidores_utilizados
+  }
+}
+```
+
+### Resolucion
+
+Tuning de los hyperparametros:
+- operadores: selection, crossover, mutation
+```{r}
+library(GA)
+
+instancia <- "instancias-empaquetamento/Problema_del_empaquetado_1.txt"
+
+capacidad <- obten_capacidad(instancia)
+tamanos_objetos <- obten_tamanos_objetos(instancia)
+
+n_objetos <- dim(tamanos_objetos)[1]
+
+gaControl("useRcpp" = FALSE) # error with M2: https://github.com/luca-scr/GA/issues/52
+
+ultima_generacion <-
+  ga(type = "permutation", 
+     lower = 1, upper = n_objetos,
+     fitness = crea_funcion_fitness(capacidad, tamanos_objetos),
+     
+     #hyperparametros
+     popSize = 1000,
+     elitism = 0.01,
+     pcrossover = 0.8,
+     pmutation = 0.5,
+     
+     #operadores
+     selection = gaperm_rwSelection,
+     crossover = gaperm_cxCrossover,
+     mutation = gaperm_ismMutation,
+     
+     #iteraciones
+     monitor = T,
+     maxiter = 400,
+     run = 50
+     )
+summary(ultima_generacion)
+plot(ultima_generacion)
+```

@@ -1,0 +1,78 @@
+---
+title: "Mochila 0-1"
+output: html_document
+---
+
+```{r reproducibilidad}
+set.seed(050700)
+```
+
+## Ejercicio 1
+```{r}
+rm(list = ls())
+```
+
+### Modelacion
+Datos
+```{r}
+capacidad <- 26
+n_objetos <- 5
+
+valor_por_obj <- c(24, 13, 23, 15, 16)
+espacio_ocupado_por_obj <- c(12, 7, 11, 8, 9)
+```
+
+Codifica
+```{r}
+library(GA)
+library(purrr)
+
+M <- log2(n_objetos)
+N <- n_objetos
+
+obten_fenotipo <- function(genotipo) {
+  genotipo 
+}
+
+calculo_valor <- function(decision){
+  sum(decision*valor_por_obj)
+}
+
+calculo_espacio_ocupado <- function(decision){
+  sum(decision*espacio_ocupado_por_obj)
+}
+
+crea_funcion_fitness <- function(capacidad, decision, factor_penalizacion) {
+  function(genotipo) {
+    decision <- obten_fenotipo(genotipo)
+    valor_total <- calcula_valor(decision)
+    espacio_ocupado_total <- calculo_espacio_ocupado(decision)
+    max(0, valor_total - factor_penalizacion * (espacio_ocupado_total - capacidad))
+  }
+}
+```
+
+Resolucion
+```{r}
+# Infraestructura para guardar las poblaciones intermedias
+# poblaciones <- list()
+# guarda_poblacion <- function(object, ...) {
+#   poblacion <- object@population
+#   evaluacion <- object@fitness
+#   poblaciones <- get("poblaciones", envir = globalenv())
+#   assign("poblaciones",
+#          append(poblaciones, list(cbind(poblacion, evaluacion))),
+#          envir = globalenv())
+#   object
+# }
+
+ultima_generacion <- ga(type = "binary", nBits = N * M,
+                        fitness = crea_funcion_fitness(capacidad, ),
+                        # postFitness = guarda_poblacion,
+                        monitor = TRUE)
+
+summary(ultima_generacion)
+str(ultima_generacion)
+plot(ultima_generacion)
+```
+

@@ -1,0 +1,132 @@
+---
+title: "Problema de la asignacion"
+output: html_document
+---
+
+```{r}
+set.seed(050700)
+```
+
+```{r}
+library(purrr)
+
+obten_numero_tareas <- function(instancia) {
+  instancia |> 
+    scan(what = character(), nmax = 4) |> 
+    magrittr::extract2(4) |> 
+    as.double()
+}
+
+obten_costes <- function(instancia) {
+  instancia |> 
+    readr::read_table(skip = 4, col_names = F)
+}
+```
+
+## Representacion binaria
+```{r}
+obten_fenotipo <- function(genotipo, n_tareas) {
+  as.matrix(genotipo, ncols = n_tareas)
+}
+
+calcula_costo_total <- function(fenotipo, costes) {
+  sum(fenotipo * costes)
+}
+
+calcula_penalizacion <- function(fenotipo) {
+  asignaciones_por_agente <- apply(fenotipo, MARGIN = 1, sum)
+  penalizacion_por_agente <-  abs(asignaciones_por_agente - 1)
+  
+  asignaciones_por_tarea <- apply(fenotipo, MARGIN = 2, sum)
+  penalizacion_por_tarea <- abs(asignaciones_por_tarea - 1)
+ 
+  sum(penalizacion_por_tarea) + sum(penalizacion_por_agente)
+}
+
+
+crea_funcion_fitness <- function(costes, factor_penalizacion) {
+  function(genotipo) {
+    fenotipo <- obten_fenotipo(genotipo)
+    costo_total <- calcula_costo_total(fenotipo, costes)
+    penalizacion <- calcula_penalizacion(fenotipo)
+    
+    min(- costo_total - factor_penalizacion*penalizacion, 0)
+  }
+}
+```
+
+
+```{r}
+library(GA)
+
+instancia <- "instancias-asignacion/Problema_de_la_asignacioon_1.txt"
+costes <- obten_costes(instancia)
+
+ultima_generacion <-
+  ga(type = "binary", nBits = nrow(costes)*ncol(costes),
+     fitness = crea_funcion_fitness(costes, sum(costes)/10),
+     popSize = 1000                               
+     )
+summary(ultima_generacion)
+plot(ultima_generacion)
+```
+
+## Representacion mediante permutaciones
+```{r}
+obten_fenotipo <- function(genotipo, n_tareas) {
+  fenotipo <- matrix(rep(0, length(genotipo)), ncol = n_tareas)
+  
+  n_col <- ncol(fenotipo)
+  n_filas <- nrow(fenotipo)
+  
+  suma_col <- rep(0, n_col)
+  suma_filas <- rep(0, n_filas)
+                        
+  for(index in genotipo){
+    
+    i <- ceiling(index / n_col)
+    j <- index - (ceiling(index/n_col) - 1) * n_col
+      
+    if(suma_filas[i] == 0 && suma_col[j] == 0){
+      fenotipo[i, j] <- 1
+      
+      suma_filas[i] <- 1
+      suma_col[j] <- 1
+    } 
+  }
+  fenotipo
+}
+
+calcula_costo_total <- function(fenotipo, costes) {
+  sum(fenotipo * costes)
+}
+
+crea_funcion_fitness <- function(costes, n_tareas) {
+  
+  function(genotipo) {
+    fenotipo <- obten_fenotipo(genotipo, n_tareas)
+    costo_total <- calcula_costo_total(fenotipo, costes)
+    
+    - costo_total
+  }
+}
+```
+
+```{r}
+library(GA)
+
+instancia <- "instancias-asignacion/Problema_de_la_asignación_1.txt"
+costes <- obten_costes(instancia)
+n_tareas <- obten_numero_tareas(instancia)
+
+gaControl("useRcpp" = FALSE) # error with M2: https://github.com/luca-scr/GA/issues/52
+
+ultima_generacion <-
+  ga(type = "permutation", lower = 1, upper = nrow(costes)*ncol(costes),
+     fitness = crea_funcion_fitness(costes, n_tareas),
+     popSize = 1000                               
+     )
+     
+summary(ultima_generacion)
+plot(ultima_generacion)
+```

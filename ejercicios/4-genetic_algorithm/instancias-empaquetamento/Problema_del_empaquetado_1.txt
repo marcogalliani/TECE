@@ -1,0 +1,14 @@
+Capacidad 100
+Número de objetos 9
+Cantidad óptima 4
+
+w_i
+70
+60
+50
+33
+33
+33
+11
+7
+3

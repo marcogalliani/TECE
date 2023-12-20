@@ -1,0 +1,166 @@
+---
+title: "Problema del viajante"
+output:
+  html_document:
+    theme:
+      version: 4
+---
+
+## Modelacion
+
+```{r reproducibilidad}
+set.seed(32572354)
+getwd()
+```
+
+En https://www.math.uwaterloo.ca/tsp/world/countries.html se pueden encontrar distintas instancias del problema del viajante.
+
+```{r}
+Western_Sahara <- readr::read_delim("Western_Sahara.txt", delim = " ",
+                                    skip = 7, n_max = 29,
+                                    col_names = c("Ciudad", "X", "Y"))
+```
+
+```{r configuracion-del-problema, message=FALSE}
+library(GA)
+library(purrr)
+
+obten_fenotipo <- function(genotipo) {
+  genotipo
+}
+
+calcula_distancia <- function(ciudad_1, ciudad_2) {
+  sum((ciudad_2 - ciudad_1)^2)
+}
+
+calcula_distancia_ruta <- function(ruta, coordenadas) {
+  map2_dbl(
+    ruta,
+    c(ruta[-1], ruta[[1]]),
+    \(c1, c2) calcula_distancia(coordenadas[c1,], coordenadas[c2,])
+  ) |> 
+    sum()
+}
+
+crea_función_fitness <- function(coordenadas) {
+  function(genotipo) {
+    genotipo |> 
+      obten_fenotipo() |> 
+      calcula_distancia_ruta(coordenadas) |> 
+      magrittr::multiply_by(-1)
+  }
+}
+```
+
+
+## Resolucion
+Hyperparametros (genotipo permutacion)
+
+Parametros
+- popSize
+- pcrossover
+- pmutation
+- elitism
+
+Operadores (por defecto: lr selection, order crossover, simple inversion mutation)
+- operador de seleccion: linerar rank, non-linear rank, roulette wheel, tournament
+- operador de cruce: cycle, partially matched, order, position-based
+- operador de mutacion: simple inversion, insertion mutation, swap, displacement, scramble
+```{r}
+# Infraestructura para guardar las poblaciones intermedias
+# poblaciones <- list()
+# guarda_poblacion <- function(object, ...) {
+#   poblacion <- object@population
+#   evaluacion <- object@fitness
+#   poblaciones <- get("poblaciones", envir = globalenv())
+#   assign("poblaciones",
+#          append(poblaciones, list(cbind(poblacion, evaluacion))),
+#          envir = globalenv())
+#   object
+# }
+
+# HYPERPARAMETROS
+
+# operadores:
+# -> seleccion
+# c(gaperm_lrSelection, gaperm_nlrSelection, gaperm_rwSelection, gaperm_tourSelection)
+# -> cruce
+# c(gaperm_cxCrossover, gaperm_pmxCrossover, gaperm_oxCrossover, gaperm_pbxCrossover)
+# -> mutacion
+# c(gaperm_simMutation, gaperm_ismMutation, gaperm_swMutation, gaperm_dmMutation, gaperm_scrMutation)
+
+
+ultima_generacion <- ga(type = "permutation",
+                      lower = 1, upper = nrow(Western_Sahara),
+                      fitness = crea_función_fitness(Western_Sahara[, -1]),
+                      # postFitness = guarda_poblacion,
+                        
+                      # operadores
+                      selection = gaperm_lrSelection,
+                      crossover = gaperm_pmxCrossover,
+                      mutation = gaperm_ismMutation,
+                         
+                      # parametros
+                      # popSize = 100,
+                      pmutation = 0.1,
+                      pcrossover = 0.8,
+                      #elitism = 0.1,
+                      maxiter = 100,
+                      
+                      monitor = TRUE)
+
+summary(ultima_generacion)
+plot(ultima_generacion)
+```
+
+```{r}
+array_branch(ultima_generacion@solution, margin = 1) |> 
+  map(obten_fenotipo)
+```
+
+```{r}
+ultima_generacion <- ga(type = "permutation",
+                      lower = 1, upper = nrow(Western_Sahara),
+                      fitness = crea_función_fitness(Western_Sahara[, -1]),
+                      # postFitness = guarda_poblacion,
+                        
+                      # operadores
+                      selection = gaperm_lrSelection,
+                      crossover = gaperm_pmxCrossover,
+                      mutation = gaperm_ismMutation,
+                         
+                      # parametros
+                      popSize = 100,
+                      pmutation = 0.3,
+                      pcrossover = 0.9,
+                      #elitism = 0.1,
+                      maxiter = 100,
+                      
+                      monitor = TRUE)
+
+summary(ultima_generacion)
+plot(ultima_generacion)
+array_branch(ultima_generacion@solution, margin = 1) |> 
+  map(obten_fenotipo)
+```
+
+```{r}
+ultima_generacion <- ga(type = "permutation",
+                        lower = 1, upper = nrow(Western_Sahara),
+                        fitness = crea_función_fitness(Western_Sahara[, -1]),
+                        suggestions = ultima_generacion@solution,
+                        selection = function(object) {
+                          gaperm_tourSelection(object, k = 5)
+                        },
+                        crossover = gaperm_pmxCrossover,
+                        mutation = gaperm_swMutation,
+                        popSize = 1000,
+                        maxiter = 200,
+                        run = 20,
+                        monitor = FALSE)
+
+summary(ultima_generacion)
+plot(ultima_generacion)
+array_branch(ultima_generacion@solution, margin = 1) |> 
+  map(obten_fenotipo)
+```

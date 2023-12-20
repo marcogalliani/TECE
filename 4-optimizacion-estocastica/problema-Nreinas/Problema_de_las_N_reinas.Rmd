@@ -1,0 +1,138 @@
+---
+title: "Problema de las \\( N \\) reinas"
+output:
+  html_document:
+    theme:
+      version: 4
+---
+
+```{r reproducibilidad}
+set.seed(23462366)
+```
+
+
+## Modelacion
+
+Asumiendo un tamaño del problema de \( N = 2^{M} \) y que hay una única reina en cada fila, se representa cada posible disposición de las reinas mediante un genotipo binario de longitud \( N \times M \), de tal forma que la columna donde se encuentra la reina de cada fila está codificada en binario por el grupo de \( M \) bits que corresponda. Para que la codificación de números consecutivos se diferencien en un único bit, es conveniente usar un [código Gray](https://es.wikipedia.org/wiki/C%C3%B3digo_Gray).
+
+```{r configuracion-del-problema, message=FALSE}
+library(GA)
+library(purrr)
+
+M <- 2
+N <- 2^M
+
+obten_fenotipo <- function(genotipo) {
+  genotipo |> 
+    split(rep(seq_len(N), each = M)) |> 
+    map(gray2binary) |> 
+    map_dbl(binary2decimal) |> 
+    magrittr::add(1)
+}
+
+se_amenazan <- function(posiciones) {
+  fila1 <- posiciones[[1]]
+  fila2 <- posiciones[[2]]
+  columna1 <- posiciones[[3]]
+  columna2 <- posiciones[[4]]
+  columna1 == columna2 ||
+    abs(fila1 - fila2) == abs(columna1 - columna2)
+}
+
+cuenta_numero_amenazas <- function(disposicion_reinas) {
+  expand.grid(seq_len(N), seq_len(N)) |> 
+    array_branch(margin = 1) |> 
+    keep(\(filas) filas[[1]] < filas[[2]]) |> 
+    map(\(filas) c(filas, disposicion_reinas[filas])) |> 
+    map_dbl(se_amenazan) |> 
+    sum()
+}
+
+funcion_fitness <- function(genotipo) {
+  genotipo |> 
+    obten_fenotipo() |> 
+    cuenta_numero_amenazas() |> 
+    magrittr::multiply_by(-1)
+}
+```
+
+## Resolucion
+Hyperparametros (genotipo binario):
+
+Parametros
+- popSize
+- pcrossover
+- pmutation
+- elitism
+
+Operadores (por defecto: lr, sp, unif)
+- operador de seleccion: linerar rank, non-linear rank, roulette wheel, tournament
+- operador de cruce: single point, uniform
+
+
+
+```{r}
+# HYPERPARAMETROS
+
+# operadores:
+# -> seleccion
+# c(gabin_lrSelection, gabin_nlrSelection, gabin_rwSelection, gabin_tourSelection)
+# -> cruce
+# c(gabin_spCrossover, gabin_uCrossover)
+
+ultima_generacion <- ga(type = "binary", 
+                        nBits = N * M,
+                        fitness = funcion_fitness,
+                        # postFitness = guarda_poblacion,
+                        monitor = TRUE)
+summary(ultima_generacion)
+str(ultima_generacion)
+plot(ultima_generacion)
+```
+
+```{r}
+array_branch(ultima_generacion@solution, margin = 1) |> 
+  map(obten_fenotipo)
+```
+Parametros
+- popSize
+- pcrossover
+- pmutation
+- elitism
+
+```{r}
+# HYPERPARAMETROS
+
+# operadores:
+# -> seleccion
+# c(gabin_lrSelection, gabin_nlrSelection, gabin_rwSelection, gabin_tourSelection)
+# -> cruce
+# c(gabin_spCrossover, gabin_uCrossover)
+
+M <- 3
+N <- 2^M
+ultima_generacion <- ga(type = "binary", nBits = N * M,
+                        fitness = funcion_fitness,
+                        
+                        # operadores
+                        selection = gabin_tourSelection,
+                        crossover = gabin_uCrossover,
+                    
+                        # parametros
+                        # elitism = 100,
+                        popSize = 1000,
+                        pcrossover = 0.8,
+                        pmutation = 0.1,
+                        
+                        maxFitness = 0,
+                        # maxiter = 150,
+                        # keepBest = TRUE,
+                        monitor = TRUE)
+
+summary(ultima_generacion)
+plot(ultima_generacion)
+array_branch(ultima_generacion@solution, margin = 1) |> 
+  map(obten_fenotipo)
+# ultima_generacion@bestSol
+```
+

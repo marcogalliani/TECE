@@ -1,0 +1,9 @@
+Número de tareas 5
+Coste óptimo 13
+
+costes c_ij
+6 4 4 2 10
+2 7 9 7 3
+4 3 9 10 9
+2 8 8 2 7
+2 2 3 7 4

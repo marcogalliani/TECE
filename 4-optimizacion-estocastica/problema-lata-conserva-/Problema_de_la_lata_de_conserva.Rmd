@@ -1,0 +1,134 @@
+---
+title: "Problema de la lata de conserva"
+output: html_document
+params:
+  N: 3
+  peso_volumen: 1
+  peso_superficie: 1
+---
+
+## Modelacion
+
+```{r reproducibilidad, include=FALSE}
+set.seed(23678243)
+```
+
+Una empresa desea fabricar latas de conserva de forma cilíndrica, con un diámetro entre \( 10 \) y \( 20 \) centímetros y una altura entre \( 10 \) y \( 30 \) centímetros, de tal forma que la lata tenga máxima capacidad con el menor coste de material posible. Se trata, por tanto, de un problema de optimización multiobjetivo que se puede formalizar como sigue:
+\begin{align*}
+  \text{maximizar} \quad
+  &\frac{\pi x_{1}^{2} x_{2}}{4} \quad
+  (\text{Volumen de un cilindro de diámetro } x_{1}
+  \text{ y altura } x_{2}) \\
+  \text{minimizar} \quad
+  &\frac{\pi x_{1}^{2}}{2} + \pi x_{1} x_{2} \quad
+  (\text{Superficie de un cilindro de diámetro } x_{1}
+  \text{ y altura } x_{2}) \\
+  \text{sujeto a} \quad
+  &x_{1}, x_{2} \in \mathbb{R} \\
+  &1 \leq x_{1}, x_{2} \leq 30
+\end{align*}
+
+Para abordar este problema mediante algoritmos genéticos, consideramos genotipos de números reales de longitud \( 2N = `r 2 * params$N` \) representando soluciones en las que el diámetro de la lata es la media de los \( N = `r params$N` \) primeros genes y la altura de la lata es la media de los \( N = `r params$N` \) últimos genes.
+
+```{r representacion}
+obten_fenotipo <- function(genotipo) {
+  diametro <- mean(genotipo[seq_len(params$N)])
+  altura <- mean(genotipo[-seq_len(params$N)])
+  c(`Diámetro` = diametro, Altura = altura)
+}
+```
+
+Como valor de aptitud de cada genotipo consideramos una combinación ponderada de las dos funciones objetivo a optimizar. Podría ocurrir que los valores de una de esas funciones fueran de mayor magnitud que los de la otra función, quedando anulados los segundos por los primeros. Para evitar este problema normalizamos al intervalo \( (0, 1) \) los valores de ambas funciones. Además, puesto que el algoritmo genético implementado en el paquete `GA` trata de maximizar el valor de aptitud, transformamos el objetivo de minimizar la superficie de la lata por el objetivo de maximizar la diferencia entre \( S \) y la superficie de la lata, donde \( S \) es la máxima superficie posible.
+
+```{r aptitud}
+calcula_volumen <- function(fenotipo) {
+  diametro <- fenotipo[[1]]
+  altura <- fenotipo[[2]]
+  pi * diametro^2 * altura / 4
+}
+
+maximo_volumen <- calcula_volumen(c(20, 30))
+
+calcula_superficie <- function(fenotipo) {
+  diametro <- fenotipo[[1]]
+  altura <- fenotipo[[2]]
+  pi * diametro^2 / 2 + pi * diametro * altura
+}
+
+maxima_superficie <- calcula_superficie(c(20, 30))
+
+funcion_fitness <- function(genotipo) {
+  fenotipo <- obten_fenotipo(genotipo)
+  volumen <- calcula_volumen(fenotipo)
+  volumen_normalizado <- volumen / maximo_volumen
+  superficie <- calcula_superficie(fenotipo)
+  superficie_normalizada <- superficie / maxima_superficie
+  params$peso_volumen * volumen_normalizado +
+    params$peso_superficie * (1 - superficie_normalizada)
+}
+```
+
+
+## Resolucion
+
+Estamos ya entonces en condiciones de poder abordar el problema mediante algoritmos genéticos. Hay que tener en cuenta que un problema de optimización multiobjetivo no tiene soluciones óptimas globales, por lo que la solución encontrada por el algoritmo depende en gran medida de los pesos considerados para cada función objetivo, que en este caso son \( `r params$peso_volumen` \) para el volumen de la lata y \( `r params$peso_superficie` \) para la superficie de la lata.
+
+
+Hyperparametros (genotipo permutacion)
+
+Parametros
+- popSize
+- pcrossover
+- pmutation
+- elitism
+
+Operadores (por defecto: lr selection, order crossover, simple inversion mutation)
+- operador de seleccion: linerar rank, non-linear rank, roulette wheel, tournament, linear scaling, sigma truncation caling)
+- operador de cruce: cycle, partially matched, order, position-based
+- operador de mutacion: simple inversion, insertion mutation, swap, displacement, scramble
+
+```{r algoritmo-genetico, message=FALSE}
+library(GA)
+library(purrr)
+
+ultima_generacion <- 
+  ga(type = "real-valued",
+     lower = rep(10, times = 2 * params$N), # Mínimo valor posible para cada gen
+     upper = rep(c(20, 30), each = params$N), # Máximo valor posible para cada gen
+     fitness = funcion_fitness,
+     popSize = 1000,
+     monitor = TRUE)
+
+plot(ultima_generacion)
+summary(ultima_generacion)
+array_branch(ultima_generacion@solution, margin = 1) |> 
+  map(obten_fenotipo) |> 
+  map(\(fenotipo) c(fenotipo,
+                    Volumen = calcula_volumen(fenotipo),
+                    Superficie = calcula_superficie(fenotipo)))
+```
+
+```{r}
+ultima_generacion <- 
+  ga(type = "real-valued",
+     lower = rep(10, times = 2 * params$N), # Mínimo valor posible para cada gen
+     upper = rep(c(20, 30), each = params$N), # Máximo valor posible para cada gen
+     fitness = funcion_fitness,
+     
+     # parametros
+     pmutation = 0.5,
+     pcrossover = 0.9,
+     popSize = 1000,
+     monitor = TRUE)
+
+plot(ultima_generacion)
+summary(ultima_generacion)
+array_branch(ultima_generacion@solution, margin = 1) |> 
+  map(obten_fenotipo) |> 
+  map(\(fenotipo) c(fenotipo,
+                    Volumen = calcula_volumen(fenotipo),
+                    Superficie = calcula_superficie(fenotipo)))
+```
+
+
+**Nota**: este es un documento RMarkdown con parámetros `N`, `peso_volumen` y `peso_superficie`. RStudio permite recompilar fácilmente el documento con distintos valores para esos parámetros.
