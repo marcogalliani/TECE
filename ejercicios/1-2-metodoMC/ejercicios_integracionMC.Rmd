@@ -32,7 +32,7 @@ g <- function(x){
 1) Generacion
 ```{r}
 genera_valor_aleatorio <- function(){
-    runif(1, 0, 1) #generemos un valor en el interval [0,1]
+    runif(1, 0, 1) #generamos un valor en el interval [0,1]
 }
 ```
 
@@ -244,11 +244,11 @@ intervalo_confianza_estratificado_optimo
 1) Generacion
 - selecion de una distrinucion instrumental
 ```{r}
-alfa_instrumental <- 6
-beta_instrumental <- 1.5
+alfa_instrumental <- 4.5
+beta_instrumental <- 1.9
 
 ggplot() +
-  geom_function(fun = g, aes(colour = "g")) +
+  geom_function(fun = function(x){return(g(x))}, aes(colour = "g")) +
   geom_function(fun = dunif, aes(colour = "unif")) +
   geom_function(
     fun = dbeta,
@@ -359,6 +359,7 @@ error_estandar <- sqrt(varianza_importancia)
 intervalo_confianza <- estimacion_importancia + c(-1,1)*error_estandar*percentil
 intervalo_confianza
 ```
+
 
 ## Ejercicio 2 (+ int. conf.)
 ```{r}
@@ -583,8 +584,8 @@ intervalo_confianza_estratificado_optimo
 1) Generacion
 - selecion de una distrinucion instrumental
 ```{r}
-alfa_instrumental <- 20
-beta_instrumental <- 4
+alfa_instrumental <- 6
+beta_instrumental <- 1.9
 
 ggplot() +
   geom_function(fun = g, aes(colour = "g")) +
@@ -748,7 +749,6 @@ eficiencia_directo <- 1 / (varianza_directo * coste_directo)
 ### Muestreo estratificado
 
 1) Generacion
-
 - mirar la funcion
 ```{r}
 library(ggplot2)
@@ -1247,7 +1247,7 @@ genera_valor_aleatorio <- function(){
 ```{r}
 coste_directo <- bench::mark(
   {
-    valores <- replicate(n, {
+    valores_directo <- replicate(n, {
       x <- genera_valor_aleatorio()
       g(x)
     })
@@ -1434,8 +1434,8 @@ Generacion para muestreo por importancia
 ```{r}
 alfa_instrumental_u_1 <- 3
 beta_instrumental_u_1 <- 1
-alfa_instrumental_u_2 <- 2
-beta_instrumental_u_2 <- 1
+alfa_instrumental_u_2 <- 1
+beta_instrumental_u_2 <- 3
 
 densidad_nominal <- function(u) {
   u_1 <- u[[1]]
@@ -1469,7 +1469,7 @@ malla |>
       u <- c(u_1, u_2)
       g(u) * densidad_nominal(u)
     })
-  )) |> 
+  ), color = "blue") |> 
   add_surface(z = outer(
     malla$u_1, malla$u_2,
     Vectorize(function(u_1, u_2) {
@@ -2058,8 +2058,8 @@ Generacion para muestreo por importancia
 ```{r}
 alfa_instrumental_u_1 <- 3
 beta_instrumental_u_1 <- 1
-alfa_instrumental_u_2 <- 2
-beta_instrumental_u_2 <- 1
+alfa_instrumental_u_2 <- 0.5
+beta_instrumental_u_2 <- 0.5
 
 densidad_nominal <- function(u) {
   u_1 <- u[[1]]
