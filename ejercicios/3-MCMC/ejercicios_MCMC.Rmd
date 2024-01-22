@@ -48,6 +48,10 @@ q <- function(y) {
   dbeta(y, shape1 = 2, shape2 = 6)
 }
 
+log_q <- function(y){
+  dbeta(y, shape1 = 2, shape2 = 6, log=T)
+}
+
 q_generator <- function(){
   rbeta(1, shape1 = alfa_sampler, shape2 = beta_sampler)
 }
@@ -84,8 +88,8 @@ for (t in seq_len(n - 1)) {
   
   # calculo de la razon de Hastings
   log_razon_Hastings <-
-    log_f_u(estado_propuesto) + log(q(estado_actual)) - 
-          log_f_u(estado_actual) -log(q(estado_propuesto))
+    log_f_u(estado_propuesto) + log_q(estado_actual) - 
+          log_f_u(estado_actual) -log_q(estado_propuesto)
   
   # accept-reject
   u <- runif(1)
@@ -144,6 +148,10 @@ q_uniform <- function(y) {
   dunif(y, min = c, max = d)
 }
 
+log_q_uniform <- function(y){
+  dunif(y, min = c, max = d, log = T)
+}
+
 q_unif_gen <- function(){
   runif(1, min = c, max = d)
 }
@@ -167,9 +175,9 @@ for (t in seq_len(n - 1)) {
   
   # calculo de la razon de Hastings
   log_razon_Hastings <-
-    log_f_u(estado_propuesto) + log(q_uniform(estado_actual)) - 
-          log_f_u(estado_actual) - log(q_uniform(estado_propuesto))
-  
+    log_f_u(estado_propuesto) + log_q_uniform(estado_actual) - 
+          log_f_u(estado_actual) - log_q_uniform(estado_propuesto)
+
   # accept-reject
   u <- runif(1)
   if (log(u) < log_razon_Hastings) {

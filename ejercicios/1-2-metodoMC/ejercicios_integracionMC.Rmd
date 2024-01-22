@@ -242,7 +242,7 @@ intervalo_confianza_estratificado_optimo
 ### MC por importancia
 
 1) Generacion
-- selecion de una distrinucion instrumental
+- selecion de una distribucion instrumental
 ```{r}
 alfa_instrumental <- 4.5
 beta_instrumental <- 1.9
